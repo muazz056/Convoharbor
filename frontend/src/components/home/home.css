@@ -1,0 +1,165 @@
+.hero-wrapper {
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  
+  .hero-img {
+    max-height: 280px;
+    width: auto;
+  }
+  .hero-desc{
+    color: #282828;
+    font-family: 'poppins', sans-serif;
+    font-size: 14px;
+  }
+
+  .hero-wrapper .signup-btn {
+    color: #fff !important;
+    background: linear-gradient(135deg, #667eea, #764ba2) !important;
+  }
+  
+  .hero-heading .blue,
+  .hero-heading .pink,
+  .hero-heading .dark-blue {
+    display: inline-block;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    
+    font-family: 'Montserrat', sans-serif;
+    font-size: 55px;
+    font-weight: 800;
+    text-align: center;
+  }
+
+  .hero-heading .blue {
+    background-image: linear-gradient(to right, #3187F7, #985BA8);}
+  
+  .hero-heading .pink {
+    background-image: linear-gradient(to right, #FD2F59, #3187F7, #FF5137);
+  }
+  .hero-heading .dark-blue {
+    background-image: linear-gradient(to right, #985BA8, #FF5137);
+  }
+
+  .meet-convo-container {
+    text-align: center;
+    padding: 60px 20px;
+    font-family: 'Poppins', sans-serif;
+  }
+  
+  .intro-text {
+    font-size: 30px;
+    color: #282828;
+    margin-bottom: 40px;
+    font-weight: 600;
+  }
+  
+  .convo-gradient {
+    background: linear-gradient(to right, #6366f1, #ec4899);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 800;
+  }
+  
+  .main-text {
+    color: #282828;
+    font-size: 30px;
+    margin-bottom: 30px;
+    line-height: 1.6;
+  }
+
+  #meet-convopilot{
+    background-color: #EFEFEF;
+    font-family: 'Inter', sans-serif;
+    font-size: 33px;
+    font-weight: 600;
+  }
+
+.plain-text-1{
+   text-align: center;
+  font-size: 50px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  display: inline-block;
+}
+
+#card_text{
+  font-family: 'Poppins', sans-serif;
+  font-size: 14px;
+}
+
+#card_text .card-title {
+  color: #ffffff !important;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+#card_text .card-text {
+  color: #e5e7eb !important;
+  line-height: 1.6;
+}
+
+.card-img-custom {
+  height: auto;      
+  object-fit: cover; 
+}
+
+.feature-section,
+.card{
+  background-color: #282828;
+}
+
+.feature-section .card {
+  background: #23232b !important;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+  /* color: #fff !important; */
+}
+
+.feature-section .card .card-body {
+  background: #23232b !important;
+  /* color: #fff !important; */
+  border-radius: 0 0 16px 16px;
+}
+
+.feature-section .card .card-title,
+.feature-section .card .card-text,
+.feature-section .card-body h5,
+.feature-section .card-body p {
+  /* color: #fff !important; */
+  opacity: 1;
+}
+
+.feature-section .card .card-text {
+  opacity: 0.9;
+}
+
+.feature-section .card .card-title,
+.feature-section .card h5 {
+  color: #ffffff !important;
+}
+
+.feature-section .card .card-text,
+.feature-section .card p {
+  color: #e5e7eb !important;
+}
+
+.footer-line{
+  color: white;
+  margin-top: 20px;
+}
+.lower-portion{
+  background-color: #282828;
+}
+
+
+[data-theme="light"] .bg-home {
+  color: #ffffff;
+  background-color: #282828;
+}

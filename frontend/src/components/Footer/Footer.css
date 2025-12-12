@@ -1,0 +1,10 @@
+.gradient-hover-btn {
+  transition: background 0.4s ease, color 0.4s ease;
+  color: white;
+}
+
+.gradient-hover-btn:hover {
+  background: linear-gradient(135deg, var(--primary), var(--secondary));
+  color: white;
+  border-color: transparent;
+}

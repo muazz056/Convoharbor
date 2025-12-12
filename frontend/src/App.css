@@ -1,0 +1,123 @@
+:root {
+  --primary: #8B5CF6;
+  --primary-dark: #7C3AED;
+  --primary-light: #A78BFA;
+  --secondary: #EC4899;
+  --secondary-dark: #DB2777;
+  --accent: #3B82F6;
+  --success: #10B981;
+  --danger: #EF4444;
+  --warning: #F59E0B;
+  --info: #06B6D4;
+  
+  --bg-dark: #0F172A;
+  --bg-light: #1E293B;
+  --bg-lighter: #334155;
+  --surface: #1E293B;
+  --surface-hover: #334155;
+  
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
+  
+  --border: #334155;
+  --border-light: #475569;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.3);
+  
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  
+  --sidebar-width: 280px;
+  --sidebar-collapsed: 70px;
+  --navbar-height: 70px;
+}
+
+/* Mode clair */
+[data-theme="light"] {
+  --bg-dark: #FFFFFF;
+  --bg-light: #F8FAFC;
+  --bg-lighter: #F1F5F9;
+  --surface: #FFFFFF;
+  --surface-hover: #F8FAFC;
+  
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #64748B;
+  
+  --border: #E2E8F0;
+  --border-light: #CBD5E1;
+  
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
+        }
+
+
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========================================
+   SIDEBAR OFFSET UTILITY
+   ======================================== */
+
+/* Utility class to offset content for fixed sidebar */
+.with-sidebar {
+  margin-left: var(--sidebar-width);
+  width: calc(100vw - var(--sidebar-width));
+  box-sizing: border-box;
+}
+
+/* Responsive behavior */
+@media (max-width: 1024px) {
+  .with-sidebar {
+    margin-left: 0;
+    width: 100vw;
+  }
+}

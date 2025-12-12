@@ -1,0 +1,462 @@
+/* How to Use Page Styles */
+.how-to-use-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  background: #f8f9fa;
+  min-height: calc(100vh - var(--navbar-height));
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding: 2rem 0;
+}
+
+.page-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.page-subtitle {
+  font-size: 1.2rem;
+  color: #718096;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Guide Container */
+.guide-container {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 2rem;
+  margin-bottom: 3rem;
+}
+
+/* Steps Navigation */
+.steps-navigation {
+  background: white;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  height: fit-content;
+  position: sticky;
+  top: 2rem;
+}
+
+.steps-navigation h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.step-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.step-nav-item:hover {
+  background: #f7fafc;
+  transform: translateX(4px);
+}
+
+.step-nav-item.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  transform: translateX(8px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.step-nav-item .step-icon {
+  font-size: 1.5rem;
+  min-width: 2rem;
+}
+
+.step-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.step-number {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.step-nav-item .step-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+/* Step Content */
+.step-content {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.step-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+.step-badge {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.step-icon-large {
+  font-size: 3rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-badge .step-number {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #667eea;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.step-badge .step-title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0.25rem 0 0 0;
+}
+
+.step-description {
+  font-size: 1.1rem;
+  color: #718096;
+  line-height: 1.6;
+}
+
+/* Step Body Sections */
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.overview-section,
+.steps-section,
+.tips-section {
+  padding: 1.5rem;
+  border-radius: 12px;
+  border-left: 4px solid #667eea;
+}
+
+.overview-section {
+  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+}
+
+.steps-section {
+  background: linear-gradient(135deg, #f0fff4 0%, #e6fffa 100%);
+  border-left-color: #38a169;
+}
+
+.tips-section {
+  background: linear-gradient(135deg, #fffaf0 0%, #fef5e7 100%);
+  border-left-color: #ed8936;
+}
+
+.step-body h3 {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.instruction-list {
+  list-style: none;
+  padding: 0;
+  counter-reset: instruction-counter;
+}
+
+.instruction-item {
+  counter-increment: instruction-counter;
+  padding: 0.75rem 0;
+  padding-left: 2.5rem;
+  position: relative;
+  line-height: 1.6;
+  color: #2d3748;
+}
+
+.instruction-item::before {
+  content: counter(instruction-counter);
+  position: absolute;
+  left: 0;
+  top: 0.75rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  background: #38a169;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.tips-list {
+  list-style: none;
+  padding: 0;
+}
+
+.tip-item {
+  padding: 0.5rem 0;
+  padding-left: 1.5rem;
+  position: relative;
+  line-height: 1.6;
+  color: #2d3748;
+}
+
+.tip-item::before {
+  content: "💡";
+  position: absolute;
+  left: 0;
+  top: 0.5rem;
+}
+
+/* Step Navigation */
+.step-navigation {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 2px solid #e2e8f0;
+}
+
+.nav-button {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nav-button.prev {
+  background: #e2e8f0;
+  color: #4a5568;
+}
+
+.nav-button.next {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.nav-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.nav-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.step-indicator {
+  font-weight: 600;
+  color: #667eea;
+  padding: 0.5rem 1rem;
+  background: #f7fafc;
+  border-radius: 20px;
+}
+
+/* Quick Links Section */
+.quick-links-section {
+  background: white;
+  border-radius: 16px;
+  padding: 2rem;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.quick-links-section h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.quick-links-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1rem;
+}
+
+.quick-link-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.5rem;
+  background: #f7fafc;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+}
+
+.quick-link-card:hover {
+  background: white;
+  border-color: #667eea;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+  text-decoration: none;
+  color: inherit;
+}
+
+.quick-link-icon {
+  font-size: 2rem;
+  padding: 0.75rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.quick-link-card h4 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin: 0 0 0.25rem 0;
+}
+
+.quick-link-card p {
+  font-size: 0.9rem;
+  color: #718096;
+  margin: 0;
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .guide-container {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+  }
+  
+  .steps-navigation {
+    position: static;
+    order: 2;
+  }
+  
+  .step-content {
+    order: 1;
+  }
+  
+  .steps-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  
+  .step-nav-item {
+    flex-shrink: 0;
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 768px) {
+  .how-to-use-page {
+    padding: 1rem;
+  }
+  
+  .page-title {
+    font-size: 2rem;
+  }
+  
+  .step-content {
+    padding: 1.5rem;
+  }
+  
+  .step-badge {
+    flex-direction: column;
+    text-align: center;
+    gap: 0.5rem;
+  }
+  
+  .step-badge .step-title {
+    font-size: 1.5rem;
+  }
+  
+  .step-navigation {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .nav-button {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .quick-links-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .step-icon-large {
+    font-size: 2rem;
+    padding: 0.75rem;
+  }
+  
+  .instruction-item {
+    padding-left: 2rem;
+  }
+  
+  .instruction-item::before {
+    width: 1.25rem;
+    height: 1.25rem;
+    font-size: 0.7rem;
+  }
+}

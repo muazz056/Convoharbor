@@ -1,0 +1,31 @@
+.oauth-callback-container {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #f4f7f6;
+    color: #333;
+    font-family: 'Arial', sans-serif;
+}
+
+.loading-spinner {
+    border: 5px solid rgba(0, 0, 0, 0.1);
+    border-left-color: #ff4b2b; /* A color that matches the theme */
+    border-radius: 50%;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.oauth-callback-container p {
+    font-size: 1.2rem;
+    color: #555;
+}

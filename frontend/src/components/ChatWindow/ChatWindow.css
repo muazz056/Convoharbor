@@ -1,0 +1,76 @@
+.gradient-btn {
+  background: linear-gradient(45deg, #d63384, #a633d6);
+  color: white;
+  border-radius: 8px;
+  border: none;
+  padding: 8px;
+  font-size: 0.9rem;
+}
+.gradient-btn:hover{
+  background: linear-gradient(45deg, #b62b70, #8428ab);
+  color: white;
+}
+
+
+/* Chat Window */
+.chat-window {
+  padding: 3rem;
+  flex: 1;
+}
+
+.chat-input-box {
+  background-color: #f1f1f1;
+  border-radius: 2rem;
+}
+
+.send-btn {
+  background: linear-gradient(45deg, #216ce7, #f50057);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  color: white;
+}
+.main-gradient-text{
+      background: linear-gradient(to right, #6366f1, #ec4899);
+    -webkit-background-clip: text; /* stylelint-disable-line property-no-vendor-prefix */
+    -webkit-text-fill-color: transparent; /* stylelint-disable-line property-no-vendor-prefix */
+}
+.attachment-button{
+    width: 45px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #282828; /* dark background */
+  color: #fff;            /* icon color */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  padding: 0;
+}
+.attachment-button i {
+  margin: 0; /* remove spacing */
+}
+
+.dropdown-items {
+  width: 220px; /* You can adjust this to your preferred width */
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.dropdown-items li {
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.dropdown-items li:hover {
+  background-color: #f1f1f1;
+}
+
+.icon {
+  width: 20px;
+}

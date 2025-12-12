@@ -1,0 +1,144 @@
+/* Styles for the Knowledge Base Modal */
+
+.knowledge-base-modal .modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+}
+
+.knowledge-base-modal .modal-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 800px;
+  height: 90vh;
+  background-color: #fff;
+  border-radius: 12px;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.knowledge-base-modal .modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.knowledge-base-modal .modal-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.knowledge-base-modal .modal-subtitle {
+  margin: 5px 0 0;
+  color: #666;
+}
+
+.knowledge-base-modal .close-button {
+  background: none;
+  border: none;
+  font-size: 1.8rem;
+  cursor: pointer;
+  color: #888;
+}
+
+.knowledge-base-modal .modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex-grow: 1;
+}
+
+/* Reusing styles from the page for consistency */
+.knowledge-controls {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  align-items: center;
+}
+
+.search-box {
+  flex-grow: 1;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.knowledge-stats {
+  font-size: 0.9rem;
+  color: #555;
+  white-space: nowrap;
+}
+
+.chunks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.chunk-card {
+  background-color: #f9f9f9;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+.chunk-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.chunk-number {
+  font-weight: bold;
+  color: #0056b3;
+}
+
+.expand-button {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.chunk-content {
+  color: #333;
+  line-height: 1.6;
+}
+
+.read-more-button {
+  background: none;
+  border: none;
+  color: #007bff;
+  cursor: pointer;
+  padding: 5px 0;
+}
+.loading-state, .empty-state, .error-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: #777;
+}
+.loading-spinner {
+    font-size: 2rem;
+    animation: spin 1.5s linear infinite;
+}
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

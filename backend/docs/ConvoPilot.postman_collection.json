@@ -1,0 +1,250 @@
+{
+    "info": {
+        "name": "ConvoPilot API",
+        "description": "API collection for ConvoPilot multi-tenant chatbot platform",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Authentication",
+            "item": [
+                {
+                    "name": "Register",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/auth/signup",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "auth", "signup"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"admin@techcorp.com\",\n    \"password\": \"securePassword123\",\n    \"tenant_id\": \"techcorp\",\n    \"role\": \"tenant_admin\",\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/auth/login",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "auth", "login"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"admin@techcorp.com\",\n    \"password\": \"securePassword123\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "Refresh Token",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/auth/token/refresh",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "auth", "token", "refresh"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"refresh_token\": \"{{refreshToken}}\"\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Tenants",
+            "item": [
+                {
+                    "name": "Create Tenant",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/tenants",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "tenants"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"TechCorp Inc.\",\n    \"domain\": \"techcorp.com\",\n    \"type\": \"managed\",\n    \"admin_email\": \"admin@techcorp.com\",\n    \"admin_password\": \"securePassword123\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "List Tenants",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/tenants?page=1&per_page=10",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "tenants"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "10"
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "name": "Update Tenant Config",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            },
+                            {
+                                "key": "X-Tenant-ID",
+                                "value": "{{tenantId}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/tenants/{{tenantId}}/config",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "tenants", "{{tenantId}}", "config"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"features\": {\n        \"multi_language\": true,\n        \"analytics\": true,\n        \"lead_generation\": true\n    },\n    \"limits\": {\n        \"max_chatbots\": 10,\n        \"max_conversations_per_day\": 1000\n    }\n}"
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "Users",
+            "item": [
+                {
+                    "name": "Create User",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            },
+                            {
+                                "key": "X-Tenant-ID",
+                                "value": "{{tenantId}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/users",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "users"]
+                        },
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"user@techcorp.com\",\n    \"password\": \"userPassword123\",\n    \"role\": \"user\",\n    \"first_name\": \"Jane\",\n    \"last_name\": \"Smith\"\n}"
+                        }
+                    }
+                },
+                {
+                    "name": "List Users",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{accessToken}}"
+                            },
+                            {
+                                "key": "X-Tenant-ID",
+                                "value": "{{tenantId}}"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/v1/users?page=1&per_page=10",
+                            "host": ["{{baseUrl}}"],
+                            "path": ["api", "v1", "users"],
+                            "query": [
+                                {
+                                    "key": "page",
+                                    "value": "1"
+                                },
+                                {
+                                    "key": "per_page",
+                                    "value": "10"
+                                }
+                            ]
+                        }
+                    }
+                }
+            ]
+        }
+    ],
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:5001"
+        },
+        {
+            "key": "accessToken",
+            "value": "your_access_token_here"
+        },
+        {
+            "key": "refreshToken",
+            "value": "your_refresh_token_here"
+        },
+        {
+            "key": "tenantId",
+            "value": "techcorp"
+        }
+    ]
+}

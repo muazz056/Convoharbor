@@ -1,0 +1,161 @@
+.sidebar {
+  color: #9b9b9b;
+  height: 100vh;
+  padding: 20px;
+  width: var(--sidebar-width);
+  background: var(--surface);
+  transition: width var(--transition);
+  z-index: 1000;
+  overflow: hidden;
+  position: fixed;
+  left: 0;
+  top: 0;
+  border-right: 1px solid #e9ecef;
+  box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar.collapsed {
+  width: var(--sidebar-collapsed);
+  color: var(--text-secondary);
+}
+
+/* Scrollbar personnalisée */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-light);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-light);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary);
+}
+
+
+.logo img {
+  max-width: 140px;
+}
+
+.logo {
+  max-width: 140px;
+}
+
+.sidebar.collapsed .logo {
+  display: none;
+}
+
+.section-titles {
+  font-size: 11px;
+  color: rgb(199, 199, 199);
+  margin-top: 20px;
+  margin-bottom: 10px;
+  font-weight: 600;
+}
+
+.nav-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.nav-items {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: #aaa;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: background 0.3s, color 0.3s;
+}
+
+.nav-items:hover {
+  background-color: #2a2f45;
+  color: #fff;
+}
+
+.nav-items.active {
+  background: rgba(139, 92, 246, 0.1);
+  color: #fff;
+}
+
+.nav-item.active::before {
+    transform: translateX(0);
+}
+
+.icon {
+  font-size: 18px;
+}
+
+.nav-items {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  color: #aaa;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.nav-items:hover {
+  background-color: #cbb9f7;
+  color: #fff;
+}
+
+.nav-items.active {
+  background-color: #8b5cf6;
+  color: #fff;
+}
+
+/* Sidebar width is now controlled by CSS variables in the main component */
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-btn {
+  background: none;
+  border: none;
+  color: #bdbdbd;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 0%;
+}
+
+.sidebar.collapsed .section-titles,
+.sidebar.collapsed .text {
+  display: none;
+}
+
+.sidebar.collapsed .logo img {
+  width: 80px;
+}
+
+.sidebar.collapsed .nav-items {
+  justify-content: center;
+  padding: 10px; /* tighter padding */
+}
+
+.sidebar.collapsed .nav-items .text {
+  display: none;
+}
+
+.sidebar.collapsed .nav-items .icon {
+  margin: 0 auto;
+}
+
+.icon {
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

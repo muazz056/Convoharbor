@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # Backend API service
+  backend:
+    build: ./backend
+    container_name: convopilot-backend
+    restart: unless-stopped
+    environment:
+      - FLASK_APP=run.py
+      - FLASK_ENV=production
+      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/convopilot
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+    depends_on:
+      - db
+    networks:
+      - convopilot-network
+
+  # Frontend service
+  frontend:
+    build: ./frontend
+    container_name: convopilot-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - convopilot-network
+
+  # Database service
+  db:
+    image: postgres:15-alpine
+    container_name: convopilot-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=convopilot
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - convopilot-network
+
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: convopilot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - convopilot-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  convopilot-network:
+    driver: bridge

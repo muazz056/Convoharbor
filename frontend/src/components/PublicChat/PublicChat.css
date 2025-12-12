@@ -1,0 +1,26 @@
+/* Public Chat Embed Styles */
+.public-chat-container {
+  background: transparent !important;
+  min-height: 100vh;
+  width: 100vw;
+  position: relative;
+}
+
+/* Ensure the root and body are transparent for iframe embedding */
+body.public-chat-mode,
+html.public-chat-mode {
+  background: transparent !important;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Hide any default React app styling that might show */
+.public-chat-container * {
+  box-sizing: border-box;
+}
+
+/* Ensure no scrollbars in iframe */
+.public-chat-container {
+  overflow: hidden;
+}

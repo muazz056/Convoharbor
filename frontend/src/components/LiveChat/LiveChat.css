@@ -1,0 +1,40 @@
+.layout-container {
+  display: flex;
+  height: 100vh; /* Full screen height */
+  width: 100%;
+}
+
+.main-content {
+  flex-grow: 1;
+  color: white;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.page {
+  margin-top: 32px;
+}
+
+.page-header {
+  margin-bottom: 24px;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.page-subtitle {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+.section-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 32px;
+}

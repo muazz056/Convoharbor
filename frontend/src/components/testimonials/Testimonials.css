@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+.testimonial-wrapper {
+  font-family: 'Inter', sans-serif;
+  background: #fff;
+}
+
+.section-title {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 700;
+  color: #282828;
+}
+
+.section-title .gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 50px;
+  font-weight: 800;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.t-card {
+  max-width: 320px;          /* ← tweak until it matches your design (e.g. 300-340px) */
+  width: 100%;
+  background: linear-gradient(180deg,#2aa7bb 0%,#0b2c55 100%);
+  border-radius: 12px;
+  color: #fff;
+  min-height: 260px;
+  padding-top: 70px;         /* space for the bigger avatar */
+}
+
+
+.t-card .avatar {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border: 4px solid #fff;
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.stars span {
+  color: #ffd43b;
+  font-size: 20px;
+  margin: 0px 2px;
+}
+
+.t-text {
+  line-height: 1.4;
+}
+
+@media (hover: hover) {
+  .t-card:hover {
+    box-shadow: 0 10px 30px rgba(11, 108, 255, 0.3); /* soft blue shadow */
+    transform: translateY(-4px);                     /* optional slight lift */
+    transition: all 0.3s ease;
+  }
+}
+

@@ -1,0 +1,64 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
+    types:
+      - completed
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    
+    steps:
+    - name: Deploy to production server
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        script: |
+          # Pull latest docker-compose and env files
+          cd /opt/convopilot
+          git pull origin main
+          
+          # Pull latest images
+          docker compose pull
+          
+          # Deploy with zero downtime
+          docker compose up -d --remove-orphans
+          
+          # Clean up old images
+          docker image prune -f
+          
+          # Verify deployment
+          docker compose ps
+          
+          # Check logs for errors
+          docker compose logs --tail=100
+
+  notify:
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Notify on success
+      if: ${{ success() }}
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        channel-id: 'deployments'
+        slack-message: '✅ Deployment to production successful!'
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        
+    - name: Notify on failure
+      if: ${{ failure() }}
+      uses: slackapi/slack-github-action@v1.24.0
+      with:
+        channel-id: 'deployments'
+        slack-message: '❌ Production deployment failed! Check logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+      env:
+        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}

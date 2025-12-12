@@ -1,0 +1,33 @@
+.section-title {
+  text-align: center;
+  font-size: 34px;
+  font-weight: 700;
+  color: #282828;
+}
+
+.section-title .gradient {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  font-size: 50px;
+  font-weight: 800;
+  font-family: 'Montserrat', sans-serif;
+}
+
+.plain-text{
+   text-align: center;
+  font-size: 50px;
+  font-weight: 700;
+  color: #282828;   
+}
+
+.accordion-heading{
+  font-family: 'Poppins', sans-serif;
+  font-size: 20px;
+  font-weight: 500;
+}
+.accordion-body{
+  font-family: 'Poppins', sans-serif;
+  font-size: 16px;
+}
