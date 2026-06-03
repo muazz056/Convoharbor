@@ -89,7 +89,7 @@ Follow these instructions to get the project running locally for development and
     # --- Database ---
     # For development, we'll use a simple SQLite database
     DATABASE_URL="sqlite:///chat_app.db"
-    PINECONE_API_KEY=your_pinecone_api_key_here
+    PINECONE_API_KEY= "Pine_Cone_API_Key
     PINECONE_ENVIRONMENT="The Region you selected in pinecone"
     PINECONE_INDEX_NAME=ai-chat-project 
     PROMPT_CONFIG_PATH=./prompts.yml

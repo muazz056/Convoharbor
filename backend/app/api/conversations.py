@@ -889,9 +889,9 @@ IMPORTANT: You can ONLY answer questions based on your knowledge base. I don't h
                 ai_response = ""
                 if current_app.llm_service:
                     try:
-                        response_data = current_app.llm_service.generate_answer(
-                            messages=messages, 
-                            model_name=ai_model,
+                        response_data = current_app.llm_service.generate_for_chatbot(
+                            messages=messages,
+                            chatbot_config=config,
                             user_id=str(getattr(g, 'user_id', 'anonymous')),
                             tenant_id=str(chatbot.tenant_id)
                         )
@@ -1218,9 +1218,7 @@ ALL of your replies must follow the above rules.
                     # Use streaming generation from LLM service
                     accumulated_response = ""
                     
-                    # Check if LLM service supports streaming
                     if hasattr(current_app.llm_service, 'generate_answer_stream'):
-                        # Real-time streaming from AI model
                         for chunk_data in current_app.llm_service.generate_answer_stream(
                             messages=messages,
                             model_name=ai_model,
@@ -1232,10 +1230,9 @@ ALL of your replies must follow the above rules.
                                 accumulated_response += chunk_content
                                 yield f"data: {json.dumps({'content': chunk_content, 'accumulated': accumulated_response})}\n\n"
                     else:
-                        # Fallback to non-streaming generation then chunk streaming
-                        response_data = current_app.llm_service.generate_answer(
+                        response_data = current_app.llm_service.generate_for_chatbot(
                             messages=messages,
-                            model_name=ai_model,
+                            chatbot_config=config,
                             user_id=str(getattr(g, 'user_id', 'anonymous')),
                             tenant_id=str(chatbot.tenant_id)
                         )

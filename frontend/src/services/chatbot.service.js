@@ -283,23 +283,48 @@ class ChatbotService {
 
   /**
    * Get available AI models and their configurations
-   * @returns {Object} Available models by provider
+   * Only returns super admin-configured models from the DB
+   * @returns {Promise<Object>} Available models by provider
+   */
+  async fetchAvailableModels() {
+    try {
+      const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
+      const token = localStorage.getItem('authToken');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const response = await fetch(`${baseURL}/models`, { headers });
+
+      if (!response.ok) return {};
+
+      const result = await response.json();
+      const dbModels = result.models || [];
+      const grouped = {};
+
+      for (const m of dbModels) {
+        if (!m.is_active) continue;
+        const providerKey = m.provider || 'other';
+        if (!grouped[providerKey]) grouped[providerKey] = [];
+        grouped[providerKey].push({
+          value: `db:${m.id}`,
+          label: m.display_name || m.model_name,
+          description: `Configured model - ${m.provider}`,
+          is_db_model: true,
+          db_id: m.id
+        });
+      }
+
+      return grouped;
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Synchronous wrapper for backwards compatibility.
+   * Returns empty - always use fetchAvailableModels() for async data.
+   * @returns {Object} Empty models (DB-driven)
    */
   getAvailableModels() {
-    return {
-      openai: [
-        { value: 'gpt-4o', label: 'GPT-4o (Most Capable)', description: 'Best performance, higher cost' },
-        { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Recommended)', description: 'Great balance of performance and cost' },
-        { value: 'gpt-4-turbo', label: 'GPT-4 Turbo', description: 'Fast and capable' },
-        { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', description: 'Fast and economical' }
-      ],
-          gemini: [
-            { value: 'models/gemini-2.5-flash', label: 'Gemini 2.5 Flash (Recommended)', description: 'Latest fast and efficient model' },
-            { value: 'models/gemini-2.5-pro', label: 'Gemini 2.5 Pro', description: 'Latest advanced reasoning model' },
-            { value: 'models/gemini-2.0-flash', label: 'Gemini 2.0 Flash', description: 'Stable 2.0 model' },
-            { value: 'models/gemini-2.0-flash-exp', label: 'Gemini 2.0 Flash Experimental', description: 'Experimental features' }
-          ]
-    };
+    return {};
   }
 
   /**
@@ -331,9 +356,8 @@ class ChatbotService {
       errors.name = 'Chatbot name must be less than 100 characters';
     }
 
-    // AI Model validation
-    const allModels = [...this.getAvailableModels().openai, ...this.getAvailableModels().gemini];
-    if (chatbotData.ai_model && !allModels.find(m => m.value === chatbotData.ai_model)) {
+    // AI Model validation (must be from DB or empty)
+    if (chatbotData.ai_model && !String(chatbotData.ai_model).startsWith('db:')) {
       errors.ai_model = 'Invalid AI model selected';
     }
 

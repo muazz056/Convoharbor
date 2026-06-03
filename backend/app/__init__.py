@@ -126,25 +126,49 @@ def create_app(config_name='default'):
          resources={r"/api/*": {"origins": [app.config.get('FRONTEND_URL')]}},
          supports_credentials=True)
 
+    # ============================================================
+    # Initialize Redis (FAIL FAST if unavailable)
+    # ============================================================
+    try:
+        from .services.redis_service import RedisService
+        app.redis_service = RedisService(
+            redis_url=app.config.get('REDIS_URL', 'redis://localhost:6379/0'),
+            socket_timeout=app.config.get('REDIS_SOCKET_TIMEOUT', 5),
+            cache_ttl=app.config.get('REDIS_CACHE_TTL', 300),
+            rate_limit=app.config.get('REDIS_RATE_LIMIT', 120),
+            app=app
+        )
+        current_app = app
+        app.logger.info("Redis service initialized on startup")
+    except Exception as e:
+        app.logger.error(f"CRITICAL: Redis initialization failed: {e}")
+        raise RuntimeError(f"Redis is required but failed to initialize: {e}")
+
+    # Initialize Cloudinary service
+    try:
+        from .services.cloudinary_service import CloudinaryService
+        app.cloudinary_service = CloudinaryService(app)
+        app.logger.info("Cloudinary service initialized")
+    except Exception as e:
+        app.logger.warning(f"Cloudinary initialization skipped: {e}")
+        app.cloudinary_service = None
+
     # Initialize services and attach to app context
     with app.app_context():
         try:
-            # Import services here to avoid circular imports
             from .services.database_service import DatabaseService
             from .services.auth_service import AuthService
             from .services.config_service import ConfigService
             from .services.tenant_service import TenantService
             from .services.ai_connector import AIConnectorService
             from .services.token_tracking_service import TokenTrackingService
-            # Re-enable AI services
             from .services.vector_service import VectorService
             from .services.llm_service import LLMService
             from .services.prompt_service import PromptService
             from .services.embedding_service import generate_embeddings_for_texts
             from .services.websocket_service import websocket_service
             from .services.intent_analysis_service import IntentAnalysisService
-            
-            # Attach service instances to the app object
+
             app.db_service = DatabaseService()
             app.auth_service = AuthService()
             app.config_service = ConfigService()
@@ -154,26 +178,20 @@ def create_app(config_name='default'):
             app.vector_service = VectorService()
             app.llm_service = LLMService()
             app.prompt_service = PromptService()
-            
-            # Create a simple embedding service wrapper
+
             class EmbeddingServiceWrapper:
                 def generate_embeddings_for_texts(self, texts):
                     return generate_embeddings_for_texts(texts)
-            
+
             app.embedding_service = EmbeddingServiceWrapper()
-            
-            # Initialize WebSocket service
+
             websocket_service.socketio.init_app(app)
             app.websocket_service = websocket_service
-            
-            # Initialize Intent Analysis service
+
             app.intent_analysis_service = IntentAnalysisService()
-            
+
         except (ValueError, ImportError) as e:
-            # This prevents the app from crashing if API keys are missing or dependencies are not installed.
-            # Endpoints that depend on these services will fail gracefully.
             app.logger.error(f"Could not initialize a service: {e}")
-            # Ensure all are set to None on failure
             app.db_service = None
             app.auth_service = None
             app.config_service = None
@@ -185,7 +203,6 @@ def create_app(config_name='default'):
             app.prompt_service = None
             app.embedding_service = None
             app.websocket_service = None
-    # --- END NEW ---
 
     # Register tenant middleware
     from .middleware import setup_tenant_context, teardown_tenant_context
@@ -201,7 +218,10 @@ def create_app(config_name='default'):
     # Register API blueprint with /api/v1 prefix to match Swagger docs
     app.register_blueprint(api_blueprint, url_prefix='/api/v1')
     
-    # Swagger docs are now handled by Flasgger at /docs/
+    # Register CLI commands
+    from .cli_commands import seed_ai_models_command, list_ai_models_command
+    app.cli.add_command(seed_ai_models_command)
+    app.cli.add_command(list_ai_models_command)
 
     return app
 

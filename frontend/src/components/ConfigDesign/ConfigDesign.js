@@ -40,9 +40,10 @@ import widgetService from '../../services/widget.service';
     console.log('🔍 ConfigDesign: URL params:', Object.fromEntries(searchParams));
     console.log('🔍 ConfigDesign: chatbotId extracted:', chatbotId);
 
-    // Load models from service
-    const models = chatbotService.getAvailableModels();
-    setAvailableModels(models);
+    // Load models from DB (super admin-configured models only)
+    chatbotService.fetchAvailableModels().then(dbModels => {
+      setAvailableModels(dbModels);
+    });
 
     // Load user data to check permissions
     const userData = localStorage.getItem('userData');
@@ -71,10 +72,12 @@ import widgetService from '../../services/widget.service';
           ? await chatbotService.getChatbotAdmin(chatbotId)
           : await chatbotService.getChatbot(chatbotId);
         // Normalize fields for the form
+        const config = response.config || {};
+        const aiModelId = config.ai_model_id || response.ai_model_id;
         const normalized = {
           ...response,
-          // ensure form uses `model` key
-          model: response.ai_model || response.model || '',
+          // ensure form uses `model` key - use db:id if configured via ai_model_id
+          model: aiModelId ? `db:${aiModelId}` : (response.ai_model || response.model || ''),
           // ensure form keys align
           maxTokens: response.max_tokens || response.maxTokens || 2048,
           temperature: response.temperature ?? 0.7,
@@ -83,7 +86,6 @@ import widgetService from '../../services/widget.service';
         setFormData(normalized);
 
         // Load theme configuration from config
-        const config = response.config || {};
         const theme = config.theme || {};
         setThemeConfig({
           position: theme.position || 'bottom-right',
@@ -94,14 +96,22 @@ import widgetService from '../../services/widget.service';
         // Load mode configuration
         setMode(config.mode || 'strict');
 
-        // Determine the provider from ai_provider or model
-        if (response.ai_provider) {
+        // Determine the provider from ai_provider or model (DB-driven)
+        if (normalized.model && normalized.model.startsWith('db:')) {
+          // DB model - find provider from availableModels by matching the value
+          const matchedProvider = Object.keys(availableModels).find(provider =>
+            availableModels[provider]?.some(m => m.value === normalized.model)
+          );
+          if (matchedProvider) setSelectedProvider(matchedProvider);
+        } else if (response.ai_provider) {
           const p = response.ai_provider.toLowerCase();
-          if (p.includes('gemini')) setSelectedProvider('gemini');
-          else if (p.includes('openai')) setSelectedProvider('openai');
+          // Match against available provider keys
+          const matchedKey = Object.keys(availableModels).find(key => p.includes(key));
+          setSelectedProvider(matchedKey || '');
         } else if (normalized.model) {
-          if (normalized.model.startsWith('models/gemini') || normalized.model.startsWith('gemini')) setSelectedProvider('gemini');
-          else if (normalized.model.startsWith('gpt-')) setSelectedProvider('openai');
+          const modelLower = normalized.model.toLowerCase();
+          const matchedKey = Object.keys(availableModels).find(key => modelLower.includes(key));
+          setSelectedProvider(matchedKey || '');
         }
       } catch (err) {
         setError(err.message || 'Failed to fetch chatbot data');
@@ -136,9 +146,10 @@ import widgetService from '../../services/widget.service';
         description: formData.description,
         type: formData.type,
         // Send canonical model key
-        ai_model: formData.model,
+        ai_model: formData.model && formData.model.startsWith('db:') ? undefined : formData.model,
+        ai_model_id: formData.model && formData.model.startsWith('db:') ? parseInt(formData.model.replace('db:', ''), 10) : undefined,
         // Normalise provider label
-        ai_provider: selectedProvider === 'gemini' ? 'Google Gemini' : selectedProvider === 'openai' ? 'OpenAI' : formData.ai_provider,
+        ai_provider: selectedProvider ? selectedProvider.charAt(0).toUpperCase() + selectedProvider.slice(1) : formData.ai_provider,
         temperature: formData.temperature,
         max_tokens: formData.maxTokens,
         fallback_model: formData.fallback_model,
@@ -367,8 +378,11 @@ import widgetService from '../../services/widget.service';
                         required
                       >
                         <option value="">Select a provider...</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="gemini">Google Gemini</option>
+                        {Object.keys(availableModels).map(providerKey => (
+                          <option key={providerKey} value={providerKey}>
+                            {providerKey.charAt(0).toUpperCase() + providerKey.slice(1)}
+                          </option>
+                        ))}
                       </select>
                       <span className="helper-text">Choose the AI provider</span>
                     </div>

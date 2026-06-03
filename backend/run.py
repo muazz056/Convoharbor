@@ -1,10 +1,12 @@
 import os
 from dotenv import load_dotenv
+
+# Load environment variables BEFORE any app imports to ensure Config class
+# attributes are evaluated with .env vars already loaded
+load_dotenv()
+
 from app import create_app, db
 from flask_migrate import Migrate
-
-# Load environment variables from .env file
-load_dotenv()
 
 # Get the configuration name from environment variables or use default
 config_name = os.getenv('FLASK_ENV', 'default')
@@ -20,4 +22,4 @@ if __name__ == '__main__':
     # Use port 5001 to avoid conflicts with Apple's AirTunes on port 5000
     # Use WebSocket server instead of regular Flask server
     from app.services.websocket_service import websocket_service
-    websocket_service.socketio.run(app, host='127.0.0.1', port=5001, debug=True)
+    websocket_service.socketio.run(app, host='127.0.0.1', port=5001, debug=True, use_reloader=False)

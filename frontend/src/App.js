@@ -35,6 +35,7 @@ import TestChatPage from './components/TestChat/TestChatPage';
 import OAuthCallback from './components/OAuthCallback/OAuthCallback';
 import PublicChat from './components/PublicChat/PublicChat';
 import ManageChatbots from './components/ManageChatbots/ManageChatbots';
+import ConfigureModels from './components/ConfigureModels/ConfigureModels';
 import HowToUse from './components/HowToUse/HowToUse';
 
 function App() {
@@ -180,6 +181,12 @@ function App() {
               <Route exact path="/admin/tenants" element={
                 <ProtectedRoute requireSuperAdmin>
                   <TenantManagement />
+                </ProtectedRoute>
+              } />
+
+              <Route exact path="/admin/models" element={
+                <ProtectedRoute requireSuperAdmin>
+                  <ConfigureModels />
                 </ProtectedRoute>
               } />
 

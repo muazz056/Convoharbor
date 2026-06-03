@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from . import api
 from ..decorators import login_required, tenant_admin_required, super_admin_required
-from ..models import Chatbot, DataSource, Tenant
+from ..models import Chatbot, DataSource, Tenant, AiModel
 from .. import db
 from flasgger.utils import swag_from
 
@@ -178,53 +178,59 @@ def create_chatbot():
             'message': f'A chatbot named "{data["name"]}" already exists in your organization'
         }), 400
     
-    # Validate AI model (accept both ai_model and model)
-    ai_model = data.get('ai_model') or data.get('model') or 'gpt-4o-mini'
-    valid_models = []
-    for models in current_app.config['VALID_MODELS'].values():
-        valid_models.extend(models)
-    
-    if ai_model not in valid_models:
-        return jsonify({
-            'error': 'Invalid AI model',
-            'message': f'Model "{ai_model}" is not supported',
-            'valid_models': valid_models
-        }), 400
-    
-    # Validate temperature
     temperature = data.get('temperature', 0.3)
     if not isinstance(temperature, (int, float)) or temperature < 0.0 or temperature > 1.0:
         return jsonify({
             'error': 'Invalid temperature',
             'message': 'Temperature must be a number between 0.0 and 1.0'
         }), 400
-    
-    # Validate max_tokens
+
     max_tokens = data.get('max_tokens', 1000)
     if not isinstance(max_tokens, int) or max_tokens < 50 or max_tokens > 4000:
         return jsonify({
             'error': 'Invalid max_tokens',
             'message': 'max_tokens must be an integer between 50 and 4000'
         }), 400
-    
-    try:
-        # Determine provider (accept ai_provider; otherwise infer from model)
-        ai_provider = data.get('ai_provider')
-        if not ai_provider:
-            ai_provider = 'Google Gemini' if str(ai_model).startswith('gemini') else 'OpenAI'
 
-        # Create chatbot configuration
+    ai_model_id = data.get('ai_model_id')
+    ai_model_name = data.get('ai_model') or data.get('model')
+    ai_model_obj = None
+    if ai_model_id:
+        ai_model_obj = AiModel.query.filter_by(id=ai_model_id, is_active=True).first()
+        if not ai_model_obj:
+            return jsonify({'error': f'AI model with id {ai_model_id} not found or inactive'}), 400
+        ai_model_name = ai_model_obj.model_name
+    elif ai_model_name:
+        ai_model_obj = AiModel.query.filter_by(model_name=ai_model_name, is_active=True).first()
+        if not ai_model_obj:
+            valid_db = [m.model_name for m in AiModel.query.filter_by(is_active=True).all()]
+            valid_models = list(set(valid_db + [
+                m for providers in current_app.config.get('VALID_MODELS', {}).values() for m in providers
+            ]))
+            if ai_model_name not in valid_models and valid_db:
+                return jsonify({
+                    'error': 'Invalid AI model',
+                    'message': f'Model "{ai_model_name}" is not available',
+                    'valid_models': valid_models
+                }), 400
+    else:
+        ai_model_obj = AiModel.query.filter_by(is_active=True).first()
+        if ai_model_obj:
+            ai_model_name = ai_model_obj.model_name
+
+    try:
         config = {
-            'ai_model': ai_model,
-            'model': ai_model,
-            'ai_provider': ai_provider,
+            'ai_model_id': ai_model_obj.id if ai_model_obj else None,
+            'ai_model': ai_model_name or 'gpt-4o-mini',
+            'model': ai_model_name or 'gpt-4o-mini',
+            'ai_provider': ai_model_obj.provider if ai_model_obj else data.get('ai_provider', 'openai'),
             'temperature': temperature,
             'max_tokens': max_tokens,
             'fallback_model': data.get('fallback_model'),
             'personality': data.get('personality', {}),
             'prompts': data.get('prompts', {}),
-            'mode': data.get('mode', 'strict'),  # New mode field: 'strict' or 'permissive'
-            'top_k': data.get('top_k', 10),  # New top_k field: number of chunks to retrieve
+            'mode': data.get('mode', 'strict'),
+            'top_k': data.get('top_k', 10),
             'created_by': g.user_id
         }
         # Persist theme configuration if provided during creation
@@ -767,33 +773,30 @@ def update_chatbot_admin(chatbot_id):
     if 'status' in data:
         chatbot.status = data['status']
     
-    # Update AI configuration (accept both ai_model and model)
-    incoming_model = data.get('ai_model') or data.get('model')
-    if incoming_model is not None:
-        ai_model = incoming_model
-        # Validate model against VALID_MODELS if available
-        try:
-            valid_models = []
-            for models in current_app.config.get('VALID_MODELS', {}).values():
-                valid_models.extend(models)
-            if valid_models and ai_model not in valid_models:
-                return jsonify({
-                    'error': 'Invalid AI model',
-                    'message': f'Model "{ai_model}" is not supported',
-                    'valid_models': valid_models
-                }), 400
-        except Exception:
-            # Be permissive for super admin if config not present
-            pass
+    # Update AI configuration
+    ai_model_id = data.get('ai_model_id')
+    ai_model_obj = None
+    if ai_model_id is not None:
+        ai_model_obj = AiModel.query.filter_by(id=ai_model_id, is_active=True).first()
+        if not ai_model_obj:
+            return jsonify({'error': f'AI model with id {ai_model_id} not found or inactive'}), 400
+        config['ai_model_id'] = ai_model_obj.id
+        config['ai_model'] = ai_model_obj.model_name
+        config['model'] = ai_model_obj.model_name
+        config['ai_provider'] = ai_model_obj.provider
+    else:
+        incoming_model = data.get('ai_model') or data.get('model')
+        if incoming_model is not None:
+            ai_model = incoming_model
+            # Persist under both keys for compatibility
+            config['ai_model'] = ai_model
+            config['model'] = ai_model
+            config['ai_model_id'] = None
 
-        # Persist under both keys for compatibility
-        config['ai_model'] = ai_model
-        config['model'] = ai_model
-
-        # If provider not explicitly provided, infer from model
-        if 'ai_provider' not in data:
-            inferred_provider = 'Google Gemini' if str(ai_model).startswith('models/gemini') or str(ai_model).startswith('gemini') else 'OpenAI'
-            config['ai_provider'] = inferred_provider
+            # If provider not explicitly provided, infer from model
+            if 'ai_provider' not in data:
+                inferred_provider = 'Google Gemini' if str(ai_model).startswith('models/gemini') or str(ai_model).startswith('gemini') else 'OpenAI'
+                config['ai_provider'] = inferred_provider
     
     # Explicit provider provided by super admin wins
     if 'ai_provider' in data:
@@ -1438,7 +1441,8 @@ def _format_chatbot_response(chatbot: Chatbot) -> dict:
         'type': chatbot.type,
         'status': chatbot.status,
         'config': config,
-        'ai_provider': config.get('ai_provider', 'OpenAI'),
+        'ai_model_id': config.get('ai_model_id'),
+        'ai_provider': config.get('ai_provider', 'openai'),
         'ai_model': config.get('ai_model', 'gpt-4o-mini'),
         'model': config.get('model', config.get('ai_model', 'gpt-4o-mini')),
         'temperature': config.get('temperature', 0.7),
@@ -1676,9 +1680,9 @@ LANGUAGE: Always reply in the same language as the user's message. English→Eng
                 current_app.logger.info(f"🧪 Test mode: Calling LLM with model {ai_model}")
                 current_app.logger.info(f"🧪 Test mode: System message preview: {full_system[:200]}...")
                 
-                response_data = current_app.llm_service.generate_answer(
+                response_data = current_app.llm_service.generate_for_chatbot(
                     messages=messages,
-                    model_name=ai_model,
+                    chatbot_config=config,
                     user_id=str(g.user_id),
                     tenant_id=str(chatbot.tenant_id)
                 )

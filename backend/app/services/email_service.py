@@ -4,55 +4,55 @@ from threading import Thread
 
 mail = Mail()
 
-def send_async_email(app, msg):
-    """Send email asynchronously."""
-    with app.app_context():
-        try:
-            # Log email configuration
-            current_app.logger.info(f"📧 Email Configuration:")
-            current_app.logger.info(f"  Server: {app.config['MAIL_SERVER']}")
-            current_app.logger.info(f"  Port: {app.config['MAIL_PORT']}")
-            current_app.logger.info(f"  Username: {app.config['MAIL_USERNAME']}")
-            current_app.logger.info(f"  TLS: {app.config['MAIL_USE_TLS']}")
-            current_app.logger.info(f"  SSL: {app.config['MAIL_USE_SSL']}")
-            
-            # Log email details
-            current_app.logger.info(f"📧 Sending email:")
-            current_app.logger.info(f"  From: {msg.sender}")
-            current_app.logger.info(f"  To: {msg.recipients}")
-            current_app.logger.info(f"  Subject: {msg.subject}")
-            
-            # Attempt to send
-            mail.send(msg)
-            current_app.logger.info("✅ Email sent successfully!")
-            
-        except Exception as e:
-            current_app.logger.error(f"❌ Error sending email: {str(e)}")
-            current_app.logger.error(f"Error details:", exc_info=True)
-            # In production, you might want to add retry logic or notify admins
 
 def send_email(subject, recipients, html_body, text_body=None):
-    """Send email with both HTML and plain text versions."""
+    app = current_app._get_current_object()
+
+    # Try Brevo REST API first
+    try:
+        from .brevo_service import send_email_brevo
+        send_email_brevo(
+            subject=subject,
+            recipients=recipients,
+            html_body=html_body,
+            text_body=text_body
+        )
+        return
+    except Exception as e:
+        current_app.logger.warning(f"Brevo email failed, falling back to SMTP: {e}")
+
+    # Fall back to Flask-Mail SMTP
+    sender = current_app.config.get('MAIL_USERNAME') or current_app.config.get('MAIL_DEFAULT_SENDER')
+    if not sender:
+        sender = current_app.config.get('BREVO_SENDER_EMAIL', 'noreply@convopilot.com')
     msg = Message(
         subject=subject,
-        sender=current_app.config['MAIL_USERNAME'],  # Use configured email as sender
-        recipients=recipients,
+        sender=sender,
+        recipients=recipients if isinstance(recipients, list) else [recipients],
         html=html_body,
-        body=text_body or html_body.replace('&lt;br&gt;', '\n').replace('&lt;/p&gt;', '\n\n')
+        body=text_body
     )
-    
-    # Send email asynchronously
+
     Thread(
-        target=send_async_email,
-        args=(current_app._get_current_object(), msg)
+        target=_send_async,
+        args=(app, msg)
     ).start()
 
+
+def _send_async(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+            current_app.logger.info("Email sent successfully")
+        except Exception as e:
+            current_app.logger.error(f"Email send error: {str(e)}")
+
+
 def send_confirmation_email(user, confirmation_token):
-    """Send confirmation email to user."""
     confirmation_link = f"{current_app.config['FRONTEND_URL']}/confirm-email?token={confirmation_token}"
-    
+
     subject = "Welcome to ConvoPilot - Please Confirm Your Email"
-    
+
     html_body = f"""
     <!DOCTYPE html>
     <html>
@@ -99,19 +99,12 @@ def send_confirmation_email(user, confirmation_token):
                 margin: 20px 0;
                 box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
             }}
-            .button:hover {{
-                background-color: #45a049;
-            }}
             .footer {{
                 text-align: center;
                 margin-top: 30px;
                 padding-top: 20px;
                 border-top: 1px solid #eeeeee;
                 color: #666666;
-            }}
-            .link {{
-                word-break: break-all;
-                color: #2196F3;
             }}
             .warning {{
                 font-size: 12px;
@@ -123,27 +116,19 @@ def send_confirmation_email(user, confirmation_token):
     <body>
         <div class="container">
             <div class="header">
-                <h2>Welcome to ConvoPilot! 🚀</h2>
+                <h2>Welcome to ConvoPilot!</h2>
             </div>
-            
             <div class="content">
-                <p>Thank you for registering with ConvoPilot. To complete your registration and activate your account, 
+                <p>Thank you for registering with ConvoPilot. To complete your registration and activate your account,
                 please click the button below:</p>
-                
                 <div style="text-align: center;">
-                    <a href="{confirmation_link}" class="button">
-                        Confirm Email
-                    </a>
+                    <a href="{confirmation_link}" class="button">Confirm Email</a>
                 </div>
-                
                 <p>Or copy and paste this link in your browser:</p>
                 <p class="link">{confirmation_link}</p>
-                
-                <p class="warning">⚠️ This link will expire in 24 hours.</p>
-                
+                <p class="warning">This link will expire in 24 hours.</p>
                 <p>If you did not register for a ConvoPilot account, please ignore this email.</p>
             </div>
-            
             <div class="footer">
                 <p>Best regards,<br>The ConvoPilot Team</p>
             </div>
@@ -151,7 +136,7 @@ def send_confirmation_email(user, confirmation_token):
     </body>
     </html>
     """
-    
+
     send_email(
         subject=subject,
         recipients=[user.email],

@@ -77,6 +77,28 @@ class AuthService:
         """Create a new user and send confirmation email."""
         from app.models import User
         
+        # Super admin is auto-confirmed, no email needed
+        if role == 'super_admin':
+            user = User(
+                tenant_id=tenant_id,
+                email=email,
+                password_hash=self.hash_password(password),
+                role=role,
+                first_name=first_name,
+                last_name=last_name,
+                email_confirmed=True,
+                email_confirmed_at=datetime.utcnow(),
+                status='active'
+            )
+            try:
+                db.session.add(user)
+                db.session.commit()
+                return user, None
+            except Exception as e:
+                db.session.rollback()
+                current_app.logger.error(f"Error creating super admin: {str(e)}")
+                raise
+
         # Generate confirmation token
         confirmation_token = self.generate_confirmation_token()
         token_expires = datetime.utcnow() + timedelta(hours=24)
@@ -145,8 +167,8 @@ class AuthService:
         if not user:
             return None
             
-        # Check both email confirmation and status
-        if not user.email_confirmed or user.status == 'pending':
+        # Check email confirmation - super admin is always auto-confirmed
+        if user.role != 'super_admin' and (not user.email_confirmed or user.status == 'pending'):
             return None
             
         if user and self.verify_password(user.password_hash, password):

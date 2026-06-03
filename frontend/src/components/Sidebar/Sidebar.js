@@ -93,13 +93,18 @@ const Sidebar = () => {
     // Add Manage Chatbots to Chatbot Management section if user is super admin
     if (user && user.role === 'super_admin') {
       console.log('✅ Sidebar: Adding Manage Chatbots to Chatbot Management for user:', user.email);
-      // Find the Chatbot Management section and add Manage Chatbots at the beginning
       const chatbotManagementSection = baseItems.find(section => section.title === 'Chatbot Management');
       if (chatbotManagementSection) {
-        chatbotManagementSection.items.unshift({ name: 'Manage Chatbots', icon: <MdSupervisorAccount /> });
+        chatbotManagementSection.items.unshift({ name: 'Manage Chatbots', icon: <MdSupervisorAccount />, path: '/manage-chatbots' });
+      }
+
+      // Add Configure Models to AI Training section
+      const aiTrainingSection = baseItems.find(section => section.title === 'AI Training');
+      if (aiTrainingSection) {
+        aiTrainingSection.items.push({ name: 'Configure Models', icon: <MdOutlineModelTraining />, path: '/admin/models' });
       }
     } else {
-      console.log('❌ Sidebar: Not adding Manage Chatbots menu. User:', user ? `${user.email} (${user.role})` : 'null');
+      console.log('❌ Sidebar: Not adding super admin menus. User:', user ? `${user.email} (${user.role})` : 'null');
     }
 
     return baseItems;
@@ -125,7 +130,7 @@ const Sidebar = () => {
                   {section.items.map((item) => (
                     <li key={item.name}>
                       <NavLink
-                        to={`/${item.name.toLowerCase().replace(/ & | /g, "-")}`}
+                        to={item.path || `/${item.name.toLowerCase().replace(/ & | /g, "-")}`}
                         className={({ isActive }) =>
                           `nav-items ${isActive ? "active" : ""}`
                         }

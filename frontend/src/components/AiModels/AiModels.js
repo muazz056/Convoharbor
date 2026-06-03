@@ -25,121 +25,7 @@ import { useAuth } from '../../contexts/AuthContext';
   const [comparisonResults, setComparisonResults] = useState([null, null]);
   const [comparisonLoading, setComparisonLoading] = useState(false);
 
-  // Available models with detailed information
-  const availableModels = [
-    {
-      id: 'gpt-4o',
-      name: 'GPT-4o',
-      provider: 'OpenAI',
-      category: 'Premium',
-      contextLength: 128000,
-      maxTokens: 4096,
-      pricing: { input: 0.005, output: 0.015 },
-      capabilities: ['Text Generation', 'Code', 'Analysis', 'Creative Writing'],
-      description: 'Most capable model with excellent reasoning and creativity',
-      status: 'active',
-      speed: 'Medium',
-      quality: 'Excellent'
-    },
-    {
-      id: 'gpt-4o-mini',
-      name: 'GPT-4o Mini',
-      provider: 'OpenAI',
-      category: 'Balanced',
-      contextLength: 128000,
-      maxTokens: 16384,
-      pricing: { input: 0.00015, output: 0.0006 },
-      capabilities: ['Text Generation', 'Code', 'Analysis', 'Summarization'],
-      description: 'Great balance of performance and cost-effectiveness',
-      status: 'active',
-      speed: 'Fast',
-      quality: 'Very Good'
-    },
-    {
-      id: 'gpt-4-turbo',
-      name: 'GPT-4 Turbo',
-      provider: 'OpenAI',
-      category: 'Premium',
-      contextLength: 128000,
-      maxTokens: 4096,
-      pricing: { input: 0.01, output: 0.03 },
-      capabilities: ['Text Generation', 'Code', 'Analysis', 'Vision'],
-      description: 'Fast and capable with vision capabilities',
-      status: 'active',
-      speed: 'Fast',
-      quality: 'Excellent'
-    },
-    {
-      id: 'gpt-3.5-turbo',
-      name: 'GPT-3.5 Turbo',
-      provider: 'OpenAI',
-      category: 'Economy',
-      contextLength: 16385,
-      maxTokens: 4096,
-      pricing: { input: 0.0005, output: 0.0015 },
-      capabilities: ['Text Generation', 'Code', 'Basic Analysis'],
-      description: 'Fast and economical for simple tasks',
-      status: 'active',
-      speed: 'Very Fast',
-      quality: 'Good'
-    },
-    {
-      id: 'models/gemini-2.5-flash',
-      name: 'Gemini 2.5 Flash',
-      provider: 'Google',
-      category: 'Balanced',
-      contextLength: 1000000,
-      maxTokens: 8192,
-      pricing: { input: 0.000075, output: 0.0003 },
-      capabilities: ['Text Generation', 'Code', 'Fast Processing', 'Latest Features', 'Multimodal'],
-      description: 'Latest 2.5 Flash model - fast and efficient',
-      status: 'active',
-      speed: 'Very Fast',
-      quality: 'Excellent'
-    },
-    {
-      id: 'models/gemini-2.5-pro',
-      name: 'Gemini 2.5 Pro',
-      provider: 'Google',
-      category: 'Premium',
-      contextLength: 2000000,
-      maxTokens: 8192,
-      pricing: { input: 0.00125, output: 0.00375 },
-      capabilities: ['Text Generation', 'Code', 'Analysis', 'Long Context', 'Multimodal', 'Advanced Reasoning'],
-      description: 'Latest 2.5 Pro model with advanced capabilities',
-      status: 'active',
-      speed: 'Medium',
-      quality: 'Excellent'
-    },
-    {
-      id: 'models/gemini-2.0-flash',
-      name: 'Gemini 2.0 Flash',
-      provider: 'Google',
-      category: 'Balanced',
-      contextLength: 1000000,
-      maxTokens: 8192,
-      pricing: { input: 0.000075, output: 0.0003 },
-      capabilities: ['Text Generation', 'Code', 'Fast Processing', 'Multimodal'],
-      description: 'Stable 2.0 Flash model',
-      status: 'active',
-      speed: 'Very Fast',
-      quality: 'Very Good'
-    },
-    {
-      id: 'models/gemini-2.0-flash-exp',
-      name: 'Gemini 2.0 Flash Experimental',
-      provider: 'Google',
-      category: 'Experimental',
-      contextLength: 1000000,
-      maxTokens: 8192,
-      pricing: { input: 0.000075, output: 0.0003 },
-      capabilities: ['Text Generation', 'Code', 'Fast Processing', 'Experimental Features'],
-      description: 'Experimental 2.0 Flash model with latest features',
-      status: 'active',
-      speed: 'Very Fast',
-      quality: 'Very Good'
-    }
-  ];
+
 
   useEffect(() => {
     loadModels();
@@ -152,12 +38,38 @@ import { useAuth } from '../../contexts/AuthContext';
   const loadModels = async () => {
     try {
       setLoading(true);
-      // Simulate loading models (in real app, this would fetch from API)
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      setModels(availableModels);
-      if (availableModels.length > 0) {
-        setSelectedModel(availableModels[0].id);
-        setComparisonModels([availableModels[0].id, availableModels[1]?.id || '']);
+      const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
+      const token = localStorage.getItem('authToken');
+
+      const response = await fetch(`${baseURL}/models`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+      const result = await response.json();
+      const apiModels = result.models || [];
+
+      const mapped = apiModels.map(m => ({
+        id: String(m.id),
+        name: m.display_name || m.model_name,
+        model_name: m.model_name,
+        provider: m.provider,
+        category: 'General',
+        contextLength: m.context_window || 128000,
+        maxTokens: m.max_tokens || 4096,
+        pricing: { input: 0, output: 0 },
+        capabilities: ['Text Generation'],
+        description: `${m.provider} - ${m.model_name}`,
+        status: m.is_active ? 'active' : 'inactive',
+        speed: 'N/A',
+        quality: 'N/A'
+      }));
+
+      setModels(mapped);
+      if (mapped.length > 0) {
+        setSelectedModel(String(mapped[0].id));
+        setComparisonModels([String(mapped[0].id), mapped[1] ? String(mapped[1].id) : '']);
       }
     } catch (err) {
       setError('Failed to load models');
@@ -205,9 +117,8 @@ import { useAuth } from '../../contexts/AuthContext';
         }
       } else {
         console.error('Health check API failed:', response.status);
-        // Fallback to simulated data if API fails
         const healthData = {};
-        for (const model of availableModels) {
+        for (const model of models) {
           healthData[model.id] = {
             status: 'unknown',
             responseTime: 0,
@@ -220,9 +131,8 @@ import { useAuth } from '../../contexts/AuthContext';
       }
     } catch (err) {
       console.error('Health check failed:', err);
-      // Fallback to simulated data on error
       const healthData = {};
-      for (const model of availableModels) {
+      for (const model of models) {
         healthData[model.id] = {
           status: 'unknown',
           responseTime: 0,

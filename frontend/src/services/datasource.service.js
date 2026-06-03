@@ -103,12 +103,13 @@ class DataSourceService {
   }
 
   /**
-   * Generate presigned URLs for file upload
+   * Upload files directly to the backend for Cloudinary processing
    * @param {Array<File>} files - Files to upload
    * @param {Object} options - Upload options (chatbot_id, description)
-   * @returns {Promise<Object>} Upload URLs and metadata
+   * @param {Function} onProgress - Progress callback (fileIndex, progress, fileName, loaded, total)
+   * @returns {Promise<Object>} Upload result with batch info and processing jobs
    */
-  async generateUploadUrls(files, options = {}) {
+  async uploadFiles(files, options = {}, onProgress = null) {
     try {
       // Validate all files first
       const validationErrors = [];
@@ -123,248 +124,72 @@ class DataSourceService {
         throw new Error(`File validation failed:\n${validationErrors.join('\n')}`);
       }
 
-      // Prepare file metadata
-      const fileMetadata = files.map(file => ({
-        filename: file.name,
-        content_type: file.type,
-        size: file.size
-      }));
+      const formData = new FormData();
+      formData.append('chatbot_id', options.chatbot_id);
+      if (options.description) formData.append('description', options.description);
+      
+      files.forEach(file => {
+        formData.append('files', file, file.name);
+      });
 
-      const requestData = {
-        files: fileMetadata,
-        ...options
-      };
+      const headers = this.getAuthHeaders();
+      // Remove Content-Type so fetch/browser sets it with boundary for FormData
+      delete headers['Content-Type'];
 
       const response = await fetch(`${this.baseURL}/datasources/upload`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(requestData),
+        headers,
+        body: formData,
       });
 
       const result = await this.handleResponse(response);
-      console.log(`📤 Generated upload URLs for ${files.length} files`);
+      console.log(`📤 Uploaded ${files.length} files for chatbot ${options.chatbot_id}`);
+      
+      // Start poll for processing progress
+      this._pollProcessingProgress(result.upload_batch_id, result.data_sources, onProgress);
+      
       return result;
     } catch (error) {
-      console.error('❌ Error generating upload URLs:', error.message);
+      console.error('❌ Error uploading files:', error.message);
       throw error;
     }
   }
 
   /**
-   * Complete file upload process using S3 (generate URLs, upload, notify)
-   * @param {Array<File>} files - Files to upload
-   * @param {Object} options - Upload options (chatbot_id, description)
-   * @param {Function} onProgress - Progress callback (fileIndex, progress, fileName)
-   * @returns {Promise<Object>} Complete upload result
+   * Poll backend for file processing progress
    */
-  async uploadFiles(files, options = {}, onProgress = null) {
+  async _pollProcessingProgress(uploadBatchId, dataSources, onProgress) {
     try {
-      // Step 1: Generate upload URLs
-      const uploadInfo = await this.generateUploadUrls(files, options);
-      
-      // Step 2: Upload each file to S3
-      const uploadResults = [];
-      
-      console.log(`[S3 UPLOAD] Starting to upload ${files.length} files for batch ${uploadInfo.upload_batch_id}`);
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fileUploadInfo = uploadInfo.files[i];
+      for (let i = 0; i < 60; i++) { // Poll up to 5 min (60 × 5s)
+        await new Promise(resolve => setTimeout(resolve, 5000));
         
-        const fileProgress = (percent, loaded, total) => {
-          if (onProgress) {
-            onProgress(i, percent, file.name, loaded, total);
-          }
-        };
-
-        const uploadResult = await this.uploadFileToS3(file, fileUploadInfo, fileProgress);
-        uploadResults.push(uploadResult);
-      }
-
-      console.log(`[S3 UPLOAD] Finished uploading ${uploadResults.length} files for batch ${uploadInfo.upload_batch_id}`);
-
-      // Step 3: Notify backend of completion
-      const completedFiles = uploadResults.map(result => ({
-        file_id: result.file_id,
-        s3_etag: result.etag
-      }));
-
-      console.log(`[S3 NOTIFY] Preparing to notify backend for batch ${uploadInfo.upload_batch_id}`);
-      const processingResult = await this.notifyUploadComplete(
-        uploadInfo.upload_batch_id, 
-        completedFiles
-      );
-
-      return {
-        upload_batch_id: uploadInfo.upload_batch_id,
-        uploaded_files: uploadResults,
-        processing_jobs: processingResult.processing_jobs,
-        success: true
-      };
-    } catch (error) {
-      console.error('❌ Complete S3 upload process failed:', error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Upload a single file to S3 using presigned URL
-   * @param {File} file - File to upload
-   * @param {Object} uploadInfo - Upload information from backend
-   * @param {Function} onProgress - Progress callback
-   * @returns {Promise<Object>} Upload result
-   */
-  async uploadFileToS3(file, uploadInfo, onProgress = null) {
-    try {
-      const formData = new FormData();
-      
-      // Add upload fields (required by S3)
-      if (uploadInfo.upload_fields) {
-        Object.entries(uploadInfo.upload_fields).forEach(([key, value]) => {
-          formData.append(key, value);
+        const response = await fetch(`${this.baseURL}/datasources?upload_batch_id=${uploadBatchId}`, {
+          headers: this.getAuthHeaders()
         });
-      }
-      
-      // Add the file (must be last)
-      formData.append('file', file);
-
-      console.log(`[S3] Uploading ${file.name} to S3...`);
-
-      // Use XMLHttpRequest for progress tracking
-      const uploadResult = await new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-
-        // Track upload progress
-        if (onProgress) {
-          xhr.upload.addEventListener('progress', (event) => {
-            if (event.lengthComputable) {
-              const percentComplete = (event.loaded / event.total) * 100;
-              onProgress(percentComplete, event.loaded, event.total);
-            }
-          });
+        
+        if (!response.ok) continue;
+        
+        const result = await response.json();
+        const sources = result.data_sources || [];
+        
+        if (sources.length > 0) {
+          let completed = sources.filter(s => s.status === 'completed').length;
+          let failed = sources.filter(s => s.status === 'failed').length;
+          let processing = sources.filter(s => s.status === 'processing').length;
+          let total = sources.length;
+          
+          if (onProgress) {
+            onProgress(-1, total > 0 ? Math.round((completed / total) * 100) : 0, 
+                       `${completed}/${total} completed, ${processing} processing, ${failed} failed`);
+          }
+          
+          if (completed + failed === total) break; // All done
         }
-
-        xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            console.log(`[S3] ✅ Successfully uploaded ${file.name}`);
-            resolve({
-              file_id: uploadInfo.file_id,
-              filename: file.name,
-              etag: xhr.getResponseHeader('ETag')?.replace(/"/g, '') || 'unknown',
-              status: 'uploaded'
-            });
-          } else {
-            console.error(`[S3] ❌ Failed to upload ${file.name}:`, xhr.responseText);
-            reject(new Error(`S3 upload failed with status ${xhr.status}: ${xhr.responseText}`));
-          }
-        });
-
-        xhr.addEventListener('error', () => {
-          console.error(`[S3] ❌ Network error uploading ${file.name}`);
-          reject(new Error('S3 upload failed due to a network error.'));
-        });
-
-        xhr.open('POST', uploadInfo.presigned_url);
-        xhr.send(formData);
-      });
-
-      return uploadResult;
-    } catch (error) {
-      console.error(`[S3] ❌ Error uploading ${file.name} to S3:`, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Notify backend that S3 upload is complete
-   * @param {string} uploadBatchId - Upload batch ID
-   * @param {Array} completedFiles - Array of completed file info
-   * @returns {Promise<Object>} Processing result
-   */
-  async notifyUploadComplete(uploadBatchId, completedFiles) {
-    try {
-      console.log(`[S3 NOTIFY] Notifying backend of completed upload for batch ${uploadBatchId}`);
-      
-      const requestData = {
-        upload_batch_id: uploadBatchId,
-        completed_files: completedFiles
-      };
-
-      const response = await fetch(`${this.baseURL}/datasources/upload/callback`, {
-        method: 'POST',
-        headers: this.getAuthHeaders(),
-        body: JSON.stringify(requestData),
-      });
-
-      const result = await this.handleResponse(response);
-      console.log(`[S3 NOTIFY] ✅ Backend notified successfully for batch ${uploadBatchId}`);
-      return result;
-    } catch (error) {
-      console.error(`[S3 NOTIFY] ❌ Error notifying backend for batch ${uploadBatchId}:`, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * (DEPRECATED FOR LOCAL TESTING)
-   * Complete file upload process (generate URLs, upload, notify)
-   * @param {Array<File>} files - Files to upload
-   * @param {Object} options - Upload options
-   * @param {Function} onProgress - Progress callback (fileIndex, progress, fileName)
-   * @returns {Promise<Object>} Complete upload result
-   */
-  /*
-  async uploadFiles_S3(files, options = {}, onProgress = null) {
-    try {
-      // Step 1: Generate upload URLs
-      const uploadInfo = await this.generateUploadUrls(files, options);
-      
-      // Step 2: Upload each file to S3
-      const uploadResults = [];
-      
-      console.log(`[UPLOAD] Starting to upload ${files.length} files for batch ${uploadInfo.upload_batch_id}`);
-
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fileUploadInfo = uploadInfo.files[i];
-        
-        const fileProgress = (percent, loaded, total) => {
-          if (onProgress) {
-            onProgress(i, percent, file.name, loaded, total);
-          }
-        };
-
-        const uploadResult = await this.uploadFileToS3(file, fileUploadInfo, fileProgress);
-        uploadResults.push(uploadResult);
       }
-
-      console.log(`[UPLOAD] Finished uploading ${uploadResults.length} files for batch ${uploadInfo.upload_batch_id}`);
-
-      // Step 3: Notify backend of completion
-      const completedFiles = uploadResults.map(result => ({
-        file_id: result.file_id,
-        s3_etag: result.etag
-      }));
-
-      // No longer suppressing errors from the callback
-      console.log(`[NOTIFY] Preparing to notify backend for batch ${uploadInfo.upload_batch_id}`);
-      const processingResult = await this.notifyUploadComplete(
-        uploadInfo.upload_batch_id, 
-        completedFiles
-      );
-
-      return {
-        upload_batch_id: uploadInfo.upload_batch_id,
-        uploaded_files: uploadResults,
-        processing_jobs: processingResult.processing_jobs,
-        success: true
-      };
-    } catch (error) {
-      console.error('❌ Complete upload process failed:', error.message);
-      throw error;
+    } catch (e) {
+      console.warn('⚠️ Processing poll interrupted:', e.message);
     }
   }
-  */
 
   /**
    * Trigger web crawling for a URL

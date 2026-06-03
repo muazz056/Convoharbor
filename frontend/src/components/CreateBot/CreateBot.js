@@ -45,8 +45,10 @@ import { chatbotService } from '../../services/chatbot.service';
           easing: 'ease-in-out',
           once: true,
         });
-        // Load models from service
-        setAvailableModels(chatbotService.getAvailableModels());
+        // Load models from DB (super admin-configured models only)
+        chatbotService.fetchAvailableModels().then(dbModels => {
+          setAvailableModels(dbModels);
+        });
         
         // Load user data to check permissions
         const userData = localStorage.getItem('userData');
@@ -80,12 +82,15 @@ import { chatbotService } from '../../services/chatbot.service';
                   
                   try {
                     // Map to backend schema and include optional theme
+                    const modelValue = formData.model || '';
                     const payload = {
                       name: formData.name,
                       description: formData.description,
                       type: formData.type,
-                      ai_model: formData.model || undefined,
-                      ai_provider: selectedProvider === 'gemini' ? 'Google Gemini' : (selectedProvider === 'openai' ? 'OpenAI' : undefined),
+                      // Send canonical model key
+                      ai_model: modelValue.startsWith('db:') ? undefined : modelValue || undefined,
+                      ai_model_id: modelValue.startsWith('db:') ? parseInt(modelValue.replace('db:', ''), 10) : undefined,
+                      ai_provider: selectedProvider ? selectedProvider.charAt(0).toUpperCase() + selectedProvider.slice(1) : undefined,
                       temperature: formData.temperature,
                       max_tokens: formData.maxTokens,
                       prompts: {
@@ -179,8 +184,11 @@ import { chatbotService } from '../../services/chatbot.service';
                           required
                         >
                           <option value="">Select a provider...</option>
-                          <option value="openai">OpenAI</option>
-                          <option value="gemini">Google Gemini</option>
+                          {Object.keys(availableModels).map(providerKey => (
+                            <option key={providerKey} value={providerKey}>
+                              {providerKey.charAt(0).toUpperCase() + providerKey.slice(1)}
+                            </option>
+                          ))}
                         </select>
                         <span className="helper-text">Choose the AI provider</span>
                       </div>

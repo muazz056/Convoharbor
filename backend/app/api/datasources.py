@@ -1,84 +1,59 @@
 # app/api/datasources.py
 
 import os
-import boto3
 import uuid
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from flask import request, current_app, jsonify, g
+from sqlalchemy import cast, String
 from sqlalchemy.exc import IntegrityError
 from . import api
 from ..decorators import login_required
-from ..models import Chatbot, DataSource
+from ..models import Chatbot, DataSource, AiModel
 from .. import db
 from flasgger.utils import swag_from
 from werkzeug.utils import secure_filename
+
+
+def resolve_chatbot_api_keys(chatbot_id):
+    if not chatbot_id:
+        return None
+    chatbot = Chatbot.query.get(chatbot_id)
+    if not chatbot or not chatbot.config:
+        return None
+    ai_model_id = chatbot.config.get('ai_model_id')
+    if not ai_model_id:
+        return None
+    ai_model = AiModel.query.get(ai_model_id)
+    if not ai_model or not ai_model.is_active:
+        return None
+    api_key = ai_model.get_api_key()
+    if not api_key:
+        return None
+    api_type = ai_model.api_type or 'openai'
+    return {api_type: api_key}
 
 
 @api.route('/datasources/upload', methods=['POST'])
 @login_required
 @swag_from({
     'tags': ['Data Sources'],
-    'summary': 'Generate secure upload URLs for files',
+    'summary': 'Upload files for processing',
     'description': """
-    ### 📤 Description
-    Generates presigned URLs for secure direct upload to AWS S3. This endpoint supports uploading documents 
-    that will be processed by the AI service and associated with a specific chatbot for training.
-    
-    The process works as follows:
-    1. Client requests presigned URL with file metadata
-    2. Server validates file and generates S3 presigned URL
-    3. Client uploads directly to S3 using the presigned URL
-    4. Server triggers AI processing after successful upload
-    
-    ---
-    ### 🔒 Security Features
-    - Direct upload to S3 (no server bandwidth usage)
-    - Presigned URLs with expiration time
-    - File type and size validation
-    - Virus scanning integration (optional)
-    
-    ---
-    ### 🔑 Authorization
-    Requires authentication. Files are associated with user's tenant and optionally with a specific chatbot.
+    Upload files that will be processed by the AI service and associated with a specific chatbot for training.
+    Files are stored temporarily in Cloudinary, processed for embeddings, then deleted.
     """,
-    'consumes': ['application/json'],
+    'consumes': ['multipart/form-data'],
     'produces': ['application/json'],
     'parameters': [
         {
             'name': 'body',
             'in': 'body',
             'required': True,
-            'description': 'File upload request with metadata',
             'schema': {
                 'type': 'object',
-                'required': ['files', 'chatbot_id'],
+                'required': ['chatbot_id'],
                 'properties': {
-                    'files': {
-                        'type': 'array',
-                        'description': 'List of files to upload',
-                        'items': {
-                            'type': 'object',
-                            'required': ['filename', 'content_type', 'size'],
-                            'properties': {
-                                'filename': {
-                                    'type': 'string',
-                                    'description': 'Name of the file',
-                                    'example': 'company_manual.pdf'
-                                },
-                                'content_type': {
-                                    'type': 'string',
-                                    'description': 'MIME type of the file',
-                                    'example': 'application/pdf'
-                                },
-                                'size': {
-                                    'type': 'integer',
-                                    'description': 'File size in bytes',
-                                    'example': 1024000
-                                }
-                            }
-                        }
-                    },
                     'chatbot_id': {
                         'type': 'integer',
                         'description': 'Required ID of chatbot to associate files with',
@@ -86,475 +61,242 @@ from werkzeug.utils import secure_filename
                     },
                     'description': {
                         'type': 'string',
-                        'description': 'Optional description of the upload batch',
-                        'example': 'Company policy documents for HR chatbot'
+                        'description': 'Optional description of the upload batch'
                     }
                 }
             }
         }
     ],
     'responses': {
-        '200': {
-            'description': 'Upload URLs generated successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string'},
-                    'upload_batch_id': {'type': 'string', 'description': 'Unique ID for tracking this upload batch'},
-                    'files': {
-                        'type': 'array',
-                        'items': {
-                            'type': 'object',
-                            'properties': {
-                                'file_id': {'type': 'string', 'description': 'Unique ID for this file'},
-                                'filename': {'type': 'string'},
-                                'presigned_url': {'type': 'string', 'description': 'S3 presigned URL for upload'},
-                                'expires_at': {'type': 'string', 'format': 'date-time', 'description': 'URL expiration time'},
-                                'upload_fields': {'type': 'object', 'description': 'Additional fields required for S3 upload'}
-                            }
-                        }
-                    },
-                    'instructions': {
-                        'type': 'object',
-                        'properties': {
-                            'method': {'type': 'string', 'example': 'POST'},
-                            'content_type': {'type': 'string', 'example': 'multipart/form-data'},
-                            'note': {'type': 'string'}
-                        }
-                    }
-                }
-            }
-        },
-        '400': {
-            'description': 'Bad Request - Invalid files or configuration',
-            'schema': {'$ref': '#/definitions/Error'}
-        },
-        '401': {
-            'description': 'Unauthorized',
-            'schema': {'$ref': '#/definitions/Error'}
-        },
-        '503': {
-            'description': 'Service Unavailable - S3 not configured',
-            'schema': {'$ref': '#/definitions/Error'}
-        }
+        '200': {'description': 'Files uploaded and processing started'},
+        '400': {'description': 'Bad Request'},
+        '401': {'description': 'Unauthorized'}
     }
 })
-def generate_upload_urls():
-    """Generate presigned URLs for secure file upload to S3"""
-    data = request.get_json()
-    
-    if not data or 'files' not in data or not isinstance(data['files'], list):
-        return jsonify({
-            'error': 'Invalid request',
-            'message': 'Request must contain a "files" array with file metadata'
-        }), 400
-    
-    files = data['files']
+def upload_files():
+    """Upload files for AI processing"""
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files provided'}), 400
+
+    files = request.files.getlist('files')
     if not files:
-        return jsonify({
-            'error': 'Empty files list',
-            'message': 'At least one file must be provided'
-        }), 400
-    
-    # Check S3 configuration
-    # Check AWS configuration
-    aws_config = {
-        'AWS_ACCESS_KEY_ID': current_app.config.get('AWS_ACCESS_KEY_ID'),
-        'AWS_SECRET_ACCESS_KEY': current_app.config.get('AWS_SECRET_ACCESS_KEY'),
-        'AWS_S3_BUCKET': current_app.config.get('AWS_S3_BUCKET'),
-        'AWS_S3_REGION': current_app.config.get('AWS_S3_REGION')
-    }
-    current_app.logger.info(f"🔑 Checking AWS config: {', '.join(k for k, v in aws_config.items() if v)}")
-    
-    if not all([aws_config['AWS_ACCESS_KEY_ID'], aws_config['AWS_SECRET_ACCESS_KEY'], aws_config['AWS_S3_BUCKET']]):
-        missing = [k for k, v in aws_config.items() if not v and k != 'AWS_S3_REGION']
-        current_app.logger.error(f"❌ Missing AWS config: {', '.join(missing)}")
-        return jsonify({
-            'error': 'S3 not configured',
-            'message': f'AWS S3 configuration is missing: {", ".join(missing)}. Please contact your administrator.'
-        }), 503
-    
-    # Required chatbot validation
-    chatbot_id = data.get('chatbot_id')
+        return jsonify({'error': 'No files provided'}), 400
+
+    chatbot_id = request.form.get('chatbot_id')
     if not chatbot_id:
-        return jsonify({
-            'error': 'Chatbot selection required',
-            'message': 'You must select a chatbot before uploading documents. Please choose which chatbot should use these documents.'
-        }), 400
-    
+        return jsonify({'error': 'chatbot_id is required'}), 400
+
     chatbot = Chatbot.query.filter_by(
         id=chatbot_id,
         tenant_id=g.tenant_id
     ).first()
-    
+
     if not chatbot:
-        return jsonify({
-            'error': 'Chatbot not found',
-            'message': f'No chatbot found with ID {chatbot_id} in your organization'
-        }), 400
-    
+        return jsonify({'error': 'Chatbot not found'}), 400
+
     try:
-        # Initialize S3 client
-        s3_client = boto3.client(
-            's3',
-            aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
-            aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
-            region_name=current_app.config['AWS_S3_REGION']
-        )
-        
-        bucket_name = current_app.config['AWS_S3_BUCKET']
         upload_batch_id = str(uuid.uuid4())
-        
-        upload_results = []
         data_sources = []
-        
-        for file_info in files:
-            # Validate file info
-            if not all(key in file_info for key in ['filename', 'content_type', 'size']):
-                return jsonify({
-                    'error': 'Invalid file info',
-                    'message': 'Each file must have filename, content_type, and size'
-                }), 400
-            
-            filename = file_info['filename']
-            content_type = file_info['content_type']
-            file_size = file_info['size']
-            
-            # Validate file type
+
+        for file in files:
+            filename = secure_filename(file.filename)
             file_ext = os.path.splitext(filename)[1].lower().lstrip('.')
             if file_ext not in current_app.config['ALLOWED_EXTENSIONS']:
                 return jsonify({
-                    'error': 'Invalid file type',
-                    'message': f'File type "{file_ext}" is not allowed. Allowed types: {list(current_app.config["ALLOWED_EXTENSIONS"])}'
+                    'error': f'File type "{file_ext}" is not allowed. Allowed types: {list(current_app.config["ALLOWED_EXTENSIONS"])}'
                 }), 400
-            
-            # Validate file size
-            max_size = current_app.config['MAX_CONTENT_LENGTH']
-            if file_size > max_size:
-                return jsonify({
-                    'error': 'File too large',
-                    'message': f'File "{filename}" ({file_size} bytes) exceeds maximum size of {max_size} bytes'
-                }), 400
-            
-            # Generate unique file key
-            file_id = str(uuid.uuid4())
-            tenant_id = g.tenant_id
-            file_key = f"tenant-{tenant_id}/uploads/{upload_batch_id}/{file_id}-{filename}"
-            
-            # Generate presigned URL
-            presigned_data = s3_client.generate_presigned_post(
-                Bucket=bucket_name,
-                Key=file_key,
-                Fields={
-                    'Content-Type': content_type,
-                    'x-amz-meta-tenant-id': str(tenant_id),
-                    'x-amz-meta-upload-batch': upload_batch_id,
-                    'x-amz-meta-original-name': filename
-                },
-                Conditions=[
-                    {'Content-Type': content_type},
-                    ['content-length-range', 1, max_size],
-                    {'x-amz-meta-tenant-id': str(tenant_id)},
-                    {'x-amz-meta-upload-batch': upload_batch_id},
-                    {'x-amz-meta-original-name': filename}
-                ],
-                ExpiresIn=3600  # 1 hour
-            )
-            
-            expires_at = datetime.utcnow() + timedelta(hours=1)
-            
-            upload_results.append({
-                'file_id': file_id,
-                'filename': filename,
-                'presigned_url': presigned_data['url'],
-                'expires_at': expires_at.isoformat(),
-                'upload_fields': presigned_data['fields']
-            })
-            
-            # Create data source record
+
             data_source = DataSource(
-                tenant_id=tenant_id,
+                tenant_id=g.tenant_id,
                 chatbot_id=chatbot_id,
                 source_type='upload',
                 source_name=filename,
-                source_url=f"s3://{bucket_name}/{file_key}",
-                status='pending',
+                status='uploading',
                 meta_data={
-                    'file_id': file_id,
+                    'file_id': str(uuid.uuid4()),
                     'upload_batch_id': upload_batch_id,
-                    'content_type': content_type,
-                    'size': file_size,
-                    'original_filename': filename,
-                    's3_key': file_key,
-                    'expires_at': expires_at.isoformat(),
-                    'description': data.get('description', '')
+                    'description': request.form.get('description', '')
                 }
             )
+            db.session.add(data_source)
+            db.session.flush()
             data_sources.append(data_source)
-        
-        # Save all data sources to database
-        for ds in data_sources:
-            db.session.add(ds)
+
+        # Format response data BEFORE committing to avoid expired attribute errors
+        response_data_sources = [_format_data_source_response(ds) for ds in data_sources]
+
         db.session.commit()
-        
-        current_app.logger.info(f"📤 Generated {len(upload_results)} upload URLs for tenant {g.tenant_id}, batch {upload_batch_id}")
-        
+
+        from ..services import document_service
+        from threading import Thread
+        import tempfile
+
+        # Save uploaded files to temp directory before the thread loses access
+        # (request.files is only available during the request lifecycle)
+        _app = current_app._get_current_object()
+        _data_source_ids = [ds.id for ds in data_sources]
+        _ds_names = {ds.id: ds.source_name for ds in data_sources}
+        saved_files = []
+
+        for file in files:
+            if file.filename:
+                safe_name = secure_filename(file.filename)
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f'_{safe_name}')
+                file.save(tmp.name)
+                saved_files.append({'path': tmp.name, 'filename': safe_name, 'original': file.filename})
+                tmp.close()
+
+        def process_files():
+            """Background processing: re-query sources, process each file."""
+            import os
+            # Use a NEW session bound to this thread's context
+            with _app.app_context():
+                try:
+                    from ..services.document_service import process_uploaded_files
+                except Exception:
+                    from ..services import document_service as _ds
+                    process_uploaded_files = _ds.process_uploaded_files
+
+                for sf in saved_files:
+                    try:
+                        matching_ds = DataSource.query.filter_by(
+                            source_name=sf['filename']
+                        ).first()
+                        if not matching_ds or not matching_ds.meta_data or matching_ds.meta_data.get('upload_batch_id') != upload_batch_id:
+                            continue
+
+                        matching_ds.status = 'processing'
+                        db.session.commit()
+
+                        api_keys = resolve_chatbot_api_keys(matching_ds.chatbot_id)
+
+                        with open(sf['path'], 'rb') as fh:
+                            from werkzeug.datastructures import FileStorage
+                            from io import BytesIO
+                            file_storage = FileStorage(
+                                stream=BytesIO(fh.read()),
+                                filename=sf['original'],
+                                content_type=None
+                            )
+                            result = process_uploaded_files([file_storage], api_keys=api_keys)
+
+                        matching_ds.status = 'completed'
+                        matching_ds.meta_data = {
+                            **(matching_ds.meta_data or {}),
+                            'processed_chunks': len(result.get('successful_chunks', []))
+                        }
+                        db.session.commit()
+
+                    except Exception as e:
+                        _app.logger.error(f"File processing error for {sf['filename']}: {str(e)}")
+                        if matching_ds:
+                            try:
+                                matching_ds.status = 'failed'
+                                matching_ds.meta_data = {
+                                    **(matching_ds.meta_data or {}),
+                                    'error': str(e)
+                                }
+                                db.session.commit()
+                            except Exception:
+                                pass
+                    finally:
+                        # Clean up temp file
+                        try:
+                            os.unlink(sf['path'])
+                        except Exception:
+                            pass
+
+        thread = Thread(target=process_files)
+        thread.daemon = True
+        thread.start()
+
         return jsonify({
-            'message': 'Upload URLs generated successfully',
+            'message': 'Files uploaded and processing started',
             'upload_batch_id': upload_batch_id,
-            'files': upload_results,
-            'instructions': {
-                'method': 'POST',
-                'content_type': 'multipart/form-data',
-                'note': 'Upload each file using the provided presigned URL and fields. URLs expire in 1 hour.'
-            }
-        }), 200
-        
+            'data_sources': response_data_sources
+        }), 202
+
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"❌ Error generating upload URLs: {e}")
-        return jsonify({
-            'error': 'Upload URL generation failed',
-            'message': 'An error occurred while generating upload URLs. Please try again.'
-        }), 500
+        current_app.logger.error(f"Error uploading files: {e}")
+        return jsonify({'error': 'Upload failed'}), 500
 
 
 @api.route('/datasources/upload/callback', methods=['POST', 'OPTIONS'])
 @login_required
-@swag_from({
-    'tags': ['Data Sources'],
-    'summary': 'Callback for completed S3 uploads',
-    'description': """
-    ### 🔄 Description
-    Callback endpoint that triggers AI processing after successful file upload to S3.
-    This endpoint should be called by the client after successfully uploading files to S3.
-    
-    The endpoint will:
-    1. Verify the files exist in S3
-    2. Trigger AI service processing
-    3. Update data source status
-    4. Associate processed content with chatbot
-    
-    ---
-    ### 🔑 Authorization
-    Requires authentication and files must belong to user's tenant.
-    """,
-    'consumes': ['application/json'],
-    'produces': ['application/json'],
-    'parameters': [
-        {
-            'name': 'body',
-            'in': 'body',
-            'required': True,
-            'schema': {
-                'type': 'object',
-                'required': ['upload_batch_id', 'completed_files'],
-                'properties': {
-                    'upload_batch_id': {
-                        'type': 'string',
-                        'description': 'Upload batch ID from the upload URL generation'
-                    },
-                    'completed_files': {
-                        'type': 'array',
-                        'description': 'List of successfully uploaded files',
-                        'items': {
-                            'type': 'object',
-                            'required': ['file_id'],
-                            'properties': {
-                                'file_id': {'type': 'string'},
-                                's3_etag': {'type': 'string', 'description': 'S3 ETag from upload response'}
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    ],
-    'responses': {
-        '200': {
-            'description': 'Processing started successfully',
-            'schema': {
-                'type': 'object',
-                'properties': {
-                    'message': {'type': 'string'},
-                    'batch_id': {'type': 'string'},
-                    'processing_jobs': {
-                        'type': 'array',
-                        'items': {
-                            'type': 'object',
-                            'properties': {
-                                'file_id': {'type': 'string'},
-                                'filename': {'type': 'string'},
-                                'status': {'type': 'string'},
-                                'job_id': {'type': 'string'}
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        '400': {'description': 'Bad Request', 'schema': {'$ref': '#/definitions/Error'}},
-        '404': {'description': 'Upload batch not found', 'schema': {'$ref': '#/definitions/Error'}}
-    }
-})
 def upload_callback():
-    """Process uploaded files after successful S3 upload"""
+    """Process uploaded files after upload completion"""
     if request.method == 'OPTIONS':
         return jsonify({'status': 'ok'}), 200
-        
+
     data = request.get_json()
-    
-    if not data or 'upload_batch_id' not in data or 'completed_files' not in data:
-        return jsonify({
-            'error': 'Invalid request',
-            'message': 'Request must contain upload_batch_id and completed_files'
-        }), 400
-    
+
+    if not data or 'upload_batch_id' not in data:
+        return jsonify({'error': 'Invalid request'}), 400
+
     upload_batch_id = data['upload_batch_id']
-    completed_files = data['completed_files']
-    
-    # Find data sources for this batch
-    current_app.logger.info(f"🔍 Looking for data sources with batch ID {upload_batch_id} for tenant {g.tenant_id}")
-    
+
     data_sources = DataSource.query.filter(
         DataSource.tenant_id == g.tenant_id,
-        DataSource.meta_data['upload_batch_id'].as_string() == upload_batch_id,
         DataSource.status == 'pending'
     ).all()
-    
-    current_app.logger.info(f"📊 Found {len(data_sources)} data sources to process")
-    
+    data_sources = [ds for ds in data_sources if ds.meta_data and ds.meta_data.get('upload_batch_id') == upload_batch_id]
+
     if not data_sources:
-        return jsonify({
-            'error': 'Upload batch not found',
-            'message': f'No pending uploads found for batch {upload_batch_id}'
-        }), 404
-    
+        return jsonify({'error': 'Upload batch not found'}), 404
+
     try:
         processing_jobs = []
-        
-        for file_info in completed_files:
-            file_id = file_info['file_id']
-            
-            # Find matching data source
-            data_source = next((ds for ds in data_sources if ds.meta_data.get('file_id') == file_id), None)
-            if not data_source:
-                current_app.logger.warning(f"⚠️ File ID {file_id} not found in batch {upload_batch_id}")
-                continue
-            
-            # Update data source status
-            data_source.status = 'processing'
-            data_source.meta_data = {
-                **data_source.meta_data,
-                's3_etag': file_info.get('s3_etag'),
-                'processed_at': datetime.utcnow().isoformat()
-            }
-            
-            # Start AI processing using existing endpoints
-            try:
-                # LAZY IMPORT: Import services here to avoid circular dependencies
-                from ..services import document_service
-                from ..services import embedding_service
 
-                current_app.logger.info(f"🤖 Starting AI processing for file: {data_source.source_name}")
-                job_id = f"job-{uuid.uuid4()}"
-                
-                # Get S3 details
-                s3_key = data_source.meta_data.get('s3_key')
-                bucket_name = current_app.config['AWS_S3_BUCKET']
-                
-                if not s3_key:
-                    raise Exception("S3 key not found in metadata")
-                
-                # Step 1: Download file from S3
-                current_app.logger.info(f"📥 Downloading file from S3: {s3_key}")
-                s3_client = boto3.client(
-                    's3',
-                    aws_access_key_id=current_app.config['AWS_ACCESS_KEY_ID'],
-                    aws_secret_access_key=current_app.config['AWS_SECRET_ACCESS_KEY'],
-                    region_name=current_app.config['AWS_S3_REGION']
-                )
-                
-                # Create temporary file path with safe filename
-                import re
-                safe_filename = re.sub(r'[^\w\-_\.]', '_', data_source.source_name)  # Replace unsafe chars with underscore
-                temp_filename = f"{job_id}_{safe_filename}"
-                temp_filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], temp_filename)
-                
-                # Download from S3
-                s3_client.download_file(bucket_name, s3_key, temp_filepath)
-                current_app.logger.info(f"✅ Downloaded file to: {temp_filepath}")
-                
-                # Step 2: Process document directly using file path
-                current_app.logger.info(f"🔧 Processing document: {data_source.source_name}")
-                
-                # Import document processing modules
-                from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+        for data_source in data_sources:
+            data_source.status = 'processing'
+            db.session.commit()
+
+            try:
+                from ..services import document_service, embedding_service
                 from ..services import text_cleaner_service, processing_service
-                
-                # Map file extensions to their loaders
-                LOADER_MAPPING = {
-                    '.pdf': PyPDFLoader,
-                    '.txt': TextLoader,
-                    '.docx': Docx2txtLoader
-                }
-                
-                # Get file extension and validate
+                from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+                import re
+
+                job_id = f"job-{uuid.uuid4()}"
+                safe_name = re.sub(r'[^\w\-_\.]', '_', data_source.source_name)
+                temp_filepath = os.path.join(
+                    current_app.config['UPLOAD_FOLDER'],
+                    f"{job_id}_{safe_name}"
+                )
+
+                LOADER_MAPPING = {'.pdf': PyPDFLoader, '.txt': TextLoader, '.docx': Docx2txtLoader}
                 file_ext = os.path.splitext(temp_filepath)[1].lower()
-                if file_ext not in LOADER_MAPPING:
-                    raise ValueError(f"Unsupported file type: {file_ext}. Supported types: {list(LOADER_MAPPING.keys())}")
-                
-                # Load and process document
-                loader_class = LOADER_MAPPING[file_ext]
-                current_app.logger.info(f"📄 Using {loader_class.__name__} for {file_ext} file")
-                
-                try:
-                    loader = loader_class(temp_filepath)
-                    documents = loader.load()
-                    if not documents:
-                        raise ValueError(f"No content extracted from file: {data_source.source_name}")
-                    current_app.logger.info(f"📑 Successfully extracted {len(documents)} document(s)")
-                except Exception as e:
-                    raise ValueError(f"Failed to load {file_ext} file: {str(e)}")
-                
-                # Clean the text
+
+                if not os.path.exists(temp_filepath):
+                    raise FileNotFoundError(f"File not found locally: {temp_filepath}")
+
+                loader = LOADER_MAPPING[file_ext](temp_filepath)
+                documents = loader.load()
+
                 cleaned_docs = []
                 for doc in documents:
                     cleaned_text = text_cleaner_service.clean_extracted_text(doc.page_content)
-                    if cleaned_text.strip():  # Only keep non-empty documents
+                    if cleaned_text.strip():
                         doc.page_content = cleaned_text
                         cleaned_docs.append(doc)
-                
-                if not cleaned_docs:
-                    raise ValueError("No valid content remained after cleaning")
-                
                 documents = cleaned_docs
-                current_app.logger.info(f"🧹 Cleaned {len(documents)} document(s)")
-                
-                # Generate document ID for this processing job
+
+                api_keys = resolve_chatbot_api_keys(data_source.chatbot_id)
+
                 doc_id = str(uuid.uuid4())
-                
-                # Chunk the documents
                 chunks = processing_service.process_documents_into_chunks(
                     documents=documents,
                     source_name=data_source.source_name,
-                    doc_id=doc_id
+                    doc_id=doc_id,
+                    api_keys=api_keys
                 )
-                
-                current_app.logger.info(f"✅ Processed into {len(chunks)} chunks")
-                
-                # Step 3: Generate embeddings using existing endpoint logic
-                current_app.logger.info(f"🧠 Generating embeddings for {len(chunks)} chunks")
-                
-                # Convert chunks to the format expected by embedding service
+
                 chunk_texts = [chunk.page_content for chunk in chunks]
-                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
-                
-                # Combine chunks with embeddings
+                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
+
                 processed_chunks = []
                 openai_embeddings = embedding_results.get("openai_embeddings", [])
-                gemini_embeddings = embedding_results.get("gemini_embeddings", [])
-                
                 for i, chunk in enumerate(chunks):
                     processed_chunk = {
                         "metadata": chunk.metadata,
@@ -563,84 +305,49 @@ def upload_callback():
                     }
                     if openai_embeddings and i < len(openai_embeddings):
                         processed_chunk["embeddings"]["openai"] = openai_embeddings[i]
-                    if gemini_embeddings and i < len(gemini_embeddings):
-                        processed_chunk["embeddings"]["gemini"] = gemini_embeddings[i]
                     processed_chunks.append(processed_chunk)
-                
-                current_app.logger.info(f"✅ Generated embeddings for {len(processed_chunks)} chunks")
-                
-                # Step 4: Store in vector database using existing service
+
                 if current_app.vector_service:
-                    current_app.logger.info(f"💾 Storing {len(processed_chunks)} chunks in vector database")
                     provider = current_app.config.get('DEFAULT_EMBEDDING_PROVIDER', 'openai')
-                    vector_result = current_app.vector_service.upsert(processed_chunks, provider=provider)
-                    current_app.logger.info(f"✅ Stored {vector_result.get('upserted_count', 0)} chunks in vector DB")
-                else:
-                    current_app.logger.warning("⚠️ Vector service not available, chunks not stored")
-                
-                # Step 5: Update status to completed
-                data_source.status = 'completed'
-                data_source.meta_data = {
-                    **data_source.meta_data,
-                    'processed_chunks': len(processed_chunks),
-                    'completed_at': datetime.utcnow().isoformat(),
-                    'job_id': job_id,
-                    'doc_id': doc_id  # Save doc_id for chunk retrieval
-                }
-                
-                # Clean up temporary file
+                    current_app.vector_service.upsert(processed_chunks, provider=provider)
+
                 if os.path.exists(temp_filepath):
                     os.remove(temp_filepath)
-                
+
+                data_source.status = 'completed'
+                data_source.meta_data['processed_chunks'] = len(processed_chunks)
+                data_source.meta_data['completed_at'] = datetime.utcnow().isoformat()
+                data_source.meta_data['doc_id'] = doc_id
+                data_source.meta_data['job_id'] = job_id
+
                 processing_jobs.append({
-                    'file_id': file_id,
+                    'file_id': data_source.meta_data.get('file_id'),
                     'filename': data_source.source_name,
-                    'status': 'completed',
-                    'job_id': job_id,
-                    'processed_chunks': len(processed_chunks)
+                    'status': 'completed'
                 })
-                
-                current_app.logger.info(f"🎉 Successfully processed {data_source.source_name}: {len(processed_chunks)} chunks")
-                
+
             except Exception as e:
-                current_app.logger.error(f"❌ Failed to process file {file_id}: {e}")
                 data_source.status = 'failed'
-                data_source.meta_data = {
-                    **data_source.meta_data,
-                    'error': str(e),
-                    'failed_at': datetime.utcnow().isoformat()
-                }
+                data_source.meta_data['error'] = str(e)
                 processing_jobs.append({
-                    'file_id': file_id,
+                    'file_id': data_source.meta_data.get('file_id'),
                     'filename': data_source.source_name,
                     'status': 'failed',
-                    'job_id': None,
                     'error': str(e)
                 })
-                
-                # Clean up temporary file on error
-                temp_filename = f"{job_id}_{data_source.source_name}" if 'job_id' in locals() else f"temp_{data_source.source_name}"
-                temp_filepath = os.path.join(current_app.config['UPLOAD_FOLDER'], temp_filename)
-                if os.path.exists(temp_filepath):
-                    os.remove(temp_filepath)
-        
-        db.session.commit()
-        
-        current_app.logger.info(f"✅ Upload callback processed for batch {upload_batch_id}, {len(processing_jobs)} files")
-        
+
+            db.session.commit()
+
         return jsonify({
             'message': 'Files processed successfully',
             'batch_id': upload_batch_id,
             'processing_jobs': processing_jobs
         }), 200
-        
+
     except Exception as e:
         db.session.rollback()
-        current_app.logger.error(f"❌ Error processing upload callback: {e}")
-        return jsonify({
-            'error': 'Processing failed',
-            'message': 'An error occurred while processing uploaded files'
-        }), 500
+        current_app.logger.error(f"Error processing upload callback: {e}")
+        return jsonify({'error': 'Processing failed'}), 500
 
 
 @api.route('/datasources/<int:datasource_id>', methods=['DELETE', 'OPTIONS'])
@@ -710,7 +417,6 @@ def delete_datasource(datasource_id):
         if not datasource:
             return jsonify({'error': 'Data source not found'}), 404
         
-        # TODO: Delete from S3 if it's a file upload
         # TODO: Delete from vector database
         # TODO: Notify AI service to remove content
         
@@ -1412,13 +1118,16 @@ def _process_web_content_async(app, db, data_source_id, document):
                 print("✅ [BG-PRINT] STEP 2: Text cleaning successful.")
                 document.page_content = cleaned_text
                 
+                api_keys = resolve_chatbot_api_keys(data_source.chatbot_id)
+
                 # STEP 3: Chunking
                 print("🔍 [BG-PRINT] STEP 3: Chunking document.")
                 doc_id = str(uuid.uuid4())
                 chunks = processing_service.process_documents_into_chunks(
                     documents=[document],
                     source_name=data_source.source_name,
-                    doc_id=doc_id
+                    doc_id=doc_id,
+                    api_keys=api_keys
                 )
                 if not chunks:
                     print("❌ [BG-PRINT] FAILED after chunking: No chunks returned.")
@@ -1432,7 +1141,7 @@ def _process_web_content_async(app, db, data_source_id, document):
                     print("❌ [BG-PRINT] FAILED before embeddings: No valid chunk texts.")
                     raise ValueError("No valid chunk texts found for embedding generation")
                 
-                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
+                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
                 if not embedding_results:
                     print("❌ [BG-PRINT] FAILED after embeddings: No results returned.")
                     raise ValueError("Embedding service returned no results")
@@ -1625,6 +1334,8 @@ def _run_ai_processing(app, db, data_source_id):
             app.logger.info(f"🧹 [BG] Cleaned {len(documents)} document(s)")
             
             # Generate document ID for this processing job
+            api_keys = resolve_chatbot_api_keys(data_source.chatbot_id)
+
             doc_id = str(uuid.uuid4())
             
             # Chunk the documents
@@ -1632,14 +1343,15 @@ def _run_ai_processing(app, db, data_source_id):
             chunks = processing_service.process_documents_into_chunks(
                 documents=documents,
                 source_name=data_source.source_name,
-                doc_id=doc_id
+                doc_id=doc_id,
+                api_keys=api_keys
             )
 
             app.logger.info(f"✅ [BG] Processed into {len(chunks)} chunks")
 
             # Step 3: Generate embeddings
             chunk_texts = [chunk.page_content for chunk in chunks]
-            embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
+            embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
             
             processed_chunks = []
             openai_embeddings = embedding_results.get("openai_embeddings", [])

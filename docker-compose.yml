@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Backend API service
   backend:
     build: ./backend
     container_name: convopilot-backend
@@ -9,18 +8,29 @@ services:
     environment:
       - FLASK_APP=run.py
       - FLASK_ENV=production
-      - DATABASE_URL=postgresql://postgres:${DB_PASSWORD}@db:5432/convopilot
+      - DATABASE_URL=${DATABASE_URL}
+      - USER_DB_URL=${USER_DB_URL}
+      - ADMIN_DB_URL=${ADMIN_DB_URL}
+      - REDIS_URL=redis://redis:6379/0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - VECTOR_DIMENSION=${VECTOR_DIMENSION:-3072}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - BACKEND_URL=${BACKEND_URL}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
     depends_on:
-      - db
+      redis:
+        condition: service_healthy
     networks:
       - convopilot-network
 
-  # Frontend service
   frontend:
     build: ./frontend
     container_name: convopilot-frontend
@@ -32,33 +42,22 @@ services:
     networks:
       - convopilot-network
 
-  # Database service
-  db:
-    image: postgres:15-alpine
-    container_name: convopilot-db
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=convopilot
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - convopilot-network
-
-  # Redis for caching and session management
   redis:
     image: redis:7-alpine
     container_name: convopilot-redis
     restart: unless-stopped
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     volumes:
       - redis_data:/data
     networks:
       - convopilot-network
 
 volumes:
-  postgres_data:
   redis_data:
 
 networks:

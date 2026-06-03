@@ -169,7 +169,8 @@ class WebSocketService:
     def _verify_jwt(self, token):
         try:
             # Use the same key as auth_service for consistency
-            secret_key = current_app.config.get('JWT_SECRET_KEY') or current_app.config.get('SECRET_KEY')
+            # AuthService signs tokens with SECRET_KEY, so we use that
+            secret_key = current_app.config.get('SECRET_KEY')
             return jwt.decode(token, secret_key, algorithms=['HS256'])
         except Exception as e:
             current_app.logger.debug(f"JWT verification failed: {e}")

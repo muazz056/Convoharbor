@@ -1878,8 +1878,8 @@ Content to analyze (extract ALL useful information):
                 except:
                     continue
                     
-            # Log the content size
-            current_app.logger.debug(f"📝 Raw HTML size: {len(html_content)} chars")
+            # Log the content size (use print for thread safety)
+            print(f"📝 Raw HTML size: {len(html_content)} chars")
             
             # Extract meaningful text content
             text_elements = []
@@ -1892,9 +1892,9 @@ Content to analyze (extract ALL useful information):
                     text_lower = text.lower()
                     skip_phrases = ['click here', 'read more', 'learn more']
                     if not any(phrase in text_lower for phrase in skip_phrases):
-                        # Log meaningful content found
+                        # Log meaningful content found (use print for thread safety)
                         if len(text) > 100:  # Log substantial content for debugging
-                            current_app.logger.debug(f"📄 Found content block ({len(text)} chars): {text[:100]}...")
+                            print(f"📄 Found content block ({len(text)} chars): {text[:100]}...")
                         text_elements.append(text)
             
             # Combine and clean

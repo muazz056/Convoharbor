@@ -4,7 +4,7 @@ import logo from "../images/logo.png";
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
-import { validateEmail, validatePassword } from "../../utils/validation";
+import { validateEmail } from "../../utils/validation";
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -35,7 +35,7 @@ const Login = () => {
   const validateForm = () => {
     const newFieldErrors = {
       email: validateEmail(formData.email),
-      password: validatePassword(formData.password)
+      password: formData.password ? '' : 'Password is required'
     };
 
     setFieldErrors(newFieldErrors);

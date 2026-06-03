@@ -122,7 +122,7 @@ def ultra_efficient_query_analysis(query: str, provider: str, model_name: str, s
     🚀 ULTRA-EFFICIENT: Single LLM call for complete query analysis
     Performs language detection, translation, sentiment analysis, intent classification,
     complexity assessment, safety moderation, and HyDE generation in ONE call.
-    Enhanced with Helicone tracking for observability.
+    Single LLM call for complete query analysis.
     """
     import time
     

@@ -1,22 +1,17 @@
-# app/services/language_service.py
-
 import google.generativeai as genai
 from flask import current_app
 
 _language_cache = {}
 
-def _configure_llm(model_name="gemini-1.5-flash-latest"):
-    """Configures and returns the Generative AI model."""
-    api_key = current_app.config.get('GEMINI_API_KEY')
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY is not configured in the .env file.")
-    
-    # Check if already configured to avoid redundant calls
-    if not hasattr(genai, '_is_configured'):
-        genai.configure(api_key=api_key)
-        genai._is_configured = True
+def _is_placeholder_key(api_key):
+    return not api_key or api_key.startswith('your-')
 
-    # Try multiple model names for compatibility (Google deprecated old model names)
+def _configure_llm(api_key=None, model_name="gemini-1.5-flash-latest"):
+    api_key = api_key or current_app.config.get('GEMINI_API_KEY')
+    if not api_key or _is_placeholder_key(api_key):
+        return None
+    genai.configure(api_key=api_key)
+
     model_names_to_try = [
         "gemini-1.5-flash-latest",
         "gemini-1.5-flash-002",
@@ -24,35 +19,33 @@ def _configure_llm(model_name="gemini-1.5-flash-latest"):
         "gemini-1.5-pro-latest",
         "gemini-pro"
     ]
-    
+
     for name in model_names_to_try:
         try:
             model = genai.GenerativeModel(name, generation_config={"temperature": 0.0})
             return model
-        except Exception as e:
-            current_app.logger.debug(f"Failed to load Gemini model {name}: {e}")
+        except Exception:
             continue
-    
-    # Final fallback
+
     model = genai.GenerativeModel("gemini-pro", generation_config={"temperature": 0.0})
     return model
 
-def detect_language_with_llm(text_sample: str) -> str:
-    """
-    Detects the language of a text sample using the Gemini LLM for high accuracy.
-    """
+def detect_language_with_llm(text_sample: str, api_key: str = None) -> str:
     sanitized_sample = text_sample.strip()
     if len(sanitized_sample) > 1000:
         sanitized_sample = sanitized_sample[:1000]
 
     if not sanitized_sample:
         return 'und'
-        
+
     if sanitized_sample in _language_cache:
         return _language_cache[sanitized_sample]
 
+    model = _configure_llm(api_key=api_key)
+    if not model:
+        return 'und'
+
     try:
-        model = _configure_llm()
         prompt = (
             "Analyze the following text and identify its primary language. "
             "Respond with ONLY the two-letter ISO 639-1 language code. "
@@ -74,27 +67,16 @@ def detect_language_with_llm(text_sample: str) -> str:
     except Exception as e:
         current_app.logger.error(f"Gemini API call for language detection failed: {e}")
         return 'und'
-    
-def translate_text(text: str, target_language: str, source_language: str = "auto") -> str | None:
-    """
-    Translates text to a target language using the Gemini LLM with an improved, context-aware prompt.
 
-    Args:
-        text: The text to translate.
-        target_language: The ISO 639-1 code of the language to translate to (e.g., "en", "es").
-        source_language: The ISO 639-1 code of the source language. Defaults to "auto".
-
-    Returns:
-        The translated text, or None if translation fails.
-    """
+def translate_text(text: str, target_language: str, source_language: str = "auto", api_key: str = None) -> str | None:
     if not text.strip():
         return None
 
+    model = _configure_llm(api_key=api_key, model_name='gemini-1.5-flash-latest')
+    if not model:
+        return None
+
     try:
-        model = _configure_llm(model_name='gemini-1.5-flash-latest')
-        
-        # --- NEW, MORE ROBUST PROMPT ---
-        # We give the model context about the task to get a more accurate conceptual translation.
         prompt = (
             "You are an expert multilingual translator. Your task is to translate the user's query for a semantic search system. "
             "It is crucial that the core *concept* of the query is preserved. "
@@ -102,18 +84,16 @@ def translate_text(text: str, target_language: str, source_language: str = "auto
             "Respond ONLY with the translated text and nothing else. "
             f"\n\nText to translate: \"{text}\""
         )
-        # --- END OF NEW PROMPT ---
 
         response = model.generate_content(prompt)
         if not response or not response.text:
             current_app.logger.warning("Translation: Gemini returned empty response")
             return None
         translated_text = response.text.strip()
-        
-        # A simple post-translation check to remove potential quotation marks from the LLM's output
+
         if translated_text.startswith('"') and translated_text.endswith('"'):
             translated_text = translated_text[1:-1]
-            
+
         current_app.logger.info(f"Translation from '{source_language}' to '{target_language}' result: '{translated_text}'")
         return translated_text
     except Exception as e:
