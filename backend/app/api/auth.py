@@ -1,13 +1,13 @@
 from flask import request, current_app, jsonify, g, redirect, url_for
 from flasgger import swag_from
 from datetime import datetime, timedelta
-import os
 import json
 import uuid
 import re
 import secrets
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
+from requests_oauthlib import OAuth2Session
 
 from flask import request, jsonify, redirect, url_for, current_app, g
 from ..models import User, Tenant
@@ -113,10 +113,12 @@ def google_callback():
         redirect_uri=url_for('api.google_callback', _external=True)
     )
 
+    # Replace http with https for oauthlib validation (local dev workaround)
+    authorization_response = request.url.replace('http://', 'https://')
     token = google.fetch_token(
         TOKEN_URL,
         client_secret=current_app.config['GOOGLE_CLIENT_SECRET'],
-        authorization_response=request.url
+        authorization_response=authorization_response
     )
 
     user_info = google.get(USER_INFO_URL).json()
@@ -156,23 +158,16 @@ def google_callback():
     jwt_token = current_app.auth_service.generate_token(
         user.id,
         user.tenant.tenant_id,
-        user.role
+        user.role,
+        user_data={
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'permissions': current_app.auth_service.get_user_permissions(user),
+        }
     )
 
-    user_data = {
-        'id': user.id,
-        'email': user.email,
-        'firstName': user.first_name,
-        'lastName': user.last_name,
-        'role': user.role,
-        'tenant_id': user.tenant_id
-    }
-
-    frontend_callback_url = (
-        f"{current_app.config['FRONTEND_URL']}/oauth-callback"
-        f"?token={jwt_token}"
-        f"&user={json.dumps(user_data)}"
-    )
+    frontend_callback_url = f"{current_app.config['FRONTEND_URL']}/oauth-callback?token={jwt_token}"
 
     return redirect(frontend_callback_url)
 
@@ -369,10 +364,17 @@ def login():
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
 
+        user_permissions = current_app.auth_service.get_user_permissions(user)
         token = current_app.auth_service.generate_token(
             user.id,
             tenant.tenant_id,
-            user.role
+            user.role,
+            user_data={
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'permissions': user_permissions,
+            }
         )
 
         return jsonify({
@@ -384,7 +386,7 @@ def login():
                 'first_name': user.first_name,
                 'last_name': user.last_name,
                 'role': user.role,
-                'permissions': current_app.auth_service.get_user_permissions(user),
+                'permissions': user_permissions,
                 'tenant_id': user.tenant_id
             }
         })
@@ -413,11 +415,18 @@ def refresh_token():
     if not tenant:
         return jsonify({'error': 'Tenant not found'}), 404
 
+    user_permissions = current_app.auth_service.get_user_permissions(user)
     access_token = current_app.auth_service.generate_token(
         user.id,
         tenant.tenant_id,
         user.role,
-        token_type='access'
+        token_type='access',
+        user_data={
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'permissions': user_permissions,
+        }
     )
 
     refresh_token = current_app.auth_service.generate_token(
@@ -495,10 +504,17 @@ def confirm_email(token):
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
 
+        user_permissions = current_app.auth_service.get_user_permissions(user)
         auth_token = current_app.auth_service.generate_token(
             user.id,
             tenant.tenant_id,
-            user.role
+            user.role,
+            user_data={
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'permissions': user_permissions,
+            }
         )
 
         return jsonify({

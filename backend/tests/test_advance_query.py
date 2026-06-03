@@ -14,7 +14,7 @@ class TestAdvancedQueryFeatures:
     @patch('app.services.history_service.get_or_create_conversation')
     @patch('app.services.query_processor_service.rewrite_query_with_history')
     @patch('app.services.query_processor_service.process_query_in_one_shot')
-    @patch('app.services.embedding_service.generate_embeddings_for_texts', return_value={'openai_embeddings': [[0.1]]})
+    @patch('app.services.embedding_service.generate_embeddings_for_texts', return_value={'embeddings': [[0.1]], 'provider': 'openai'})
     @patch('app.services.vector_service.VectorService.query', return_value=[])
     @patch('app.services.llm_service.LLMService.generate_answer', return_value="Test answer")
     def test_follow_up_question_uses_history(

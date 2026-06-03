@@ -61,7 +61,7 @@ class TestRAGPipeline:
         # --- ARRANGE: Configure the return values of our mocks ---
         
         mock_process_query.return_value = MOCK_QUERY_PROCESSOR_OUTPUT
-        mock_generate_embeddings.return_value = {'openai_embeddings': [[0.1, 0.2, 0.3]]}
+        mock_generate_embeddings.return_value = {'embeddings': [[0.1, 0.2, 0.3]], 'provider': 'openai'}
         mock_vector_query.return_value = MOCK_RETRIEVED_CONTEXTS
         mock_generate_answer.return_value = MOCK_FINAL_ANSWER
         

@@ -36,7 +36,7 @@ class Chatbot(db.Model):
             'type': self.type,
             'status': self.status,
             'config': config,
-            'ai_provider': config.get('ai_provider', 'OpenAI'),
+            'ai_provider': config.get('ai_provider', 'openai'),
             'ai_model': config.get('ai_model', 'gpt-4o-mini'),
             'model': config.get('model', config.get('ai_model', 'gpt-4o-mini')),
             'temperature': config.get('temperature', 0.7),

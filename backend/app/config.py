@@ -36,7 +36,8 @@ class Config:
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=5)
     JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
 
-    # Redis Configuration
+    # Redis Configuration (optional - set REDIS_ENABLED=true to enable)
+    REDIS_ENABLED = os.environ.get('REDIS_ENABLED', 'False').lower() in ['true', '1', 't']
     REDIS_URL = os.environ.get('REDIS_URL', 'redis://127.0.0.1:6379/0')
     REDIS_CACHE_TTL = int(os.environ.get('REDIS_CACHE_TTL', '300'))
     REDIS_SOCKET_TIMEOUT = int(os.environ.get('REDIS_SOCKET_TIMEOUT', '5'))
@@ -84,29 +85,15 @@ class Config:
     ALLOWED_EXTENSIONS = {'txt', 'pdf', 'docx', 'doc'}
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024
 
-    # Default AI Model Settings
-    DEFAULT_LLM_PROVIDER = 'gemini'
-    DEFAULT_EMBEDDING_PROVIDER = 'openai'
-    DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
-    DEFAULT_GEMINI_MODEL = 'models/gemini-2.5-flash'
-    DEFAULT_GROQ_MODEL = 'llama3-70b-8192'
-    GEMINI_EMBEDDING_MODEL = 'models/embedding-001'
-
-    VALID_MODELS = {
-        'openai': ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-        'gemini': ['models/gemini-2.5-flash', 'models/gemini-2.5-pro', 'models/gemini-2.0-flash', 'models/gemini-2.0-flash-exp'],
-        'groq': ['llama3-70b-8192', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma2-9b-it']
-    }
+    # Embedding Service Selection
+    EMBEDDINGS_SERVICE_USE = os.environ.get('EMBEDDINGS_SERVICE_USE', 'openai')
+    OPENAI_EMBEDDING_MODEL = os.environ.get('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-large')
+    GEMINI_EMBEDDING_MODEL = os.environ.get('GEMINI_EMBEDDING_MODEL', 'models/embedding-001')
 
     # Retrieval & Document Processing Settings
     RETRIEVAL_SCORE_THRESHOLD = 0.4
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 150
-
-    # pgvector settings
-    VECTOR_DIMENSION = 3072
-    VECTOR_INDEX_TYPE = 'ivfflat'
-    VECTOR_INDEX_LISTS = 100
 
 
 class DevelopmentConfig(Config):

@@ -327,27 +327,25 @@ const TestChatPage = () => {
   const getModelInfo = () => {
     if (!chatbot) return null;
     
-    // Get the configured model from chatbot
     const config = chatbot.config || {};
     const configuredModel = chatbot.ai_model || chatbot.model || config.ai_model || config.model;
     
-    console.log('Debug - Chatbot config:', config);
-    console.log('Debug - Configured model:', configuredModel);
-    
-    // Determine provider based on model
-    let provider = 'OpenAI'; // default
-    let model = configuredModel || 'gpt-4o-mini';
-    
-    if (configuredModel) {
-      if (configuredModel.startsWith('gpt-')) {
-        provider = 'OpenAI';
-      } else if (configuredModel.startsWith('gemini-') || configuredModel === 'gemini-pro') {
-        provider = 'Google Gemini';
-      }
-      model = configuredModel;
-    }
-    
-    console.log('Debug - Final provider:', provider, 'model:', model);
+    const providerMap = {
+      'openai': 'OpenAI',
+      'gemini': 'Google Gemini',
+      'groq': 'Groq',
+      'claude': 'Anthropic',
+      'qwen': 'Qwen',
+      'deepseek': 'DeepSeek',
+      'mistral': 'Mistral',
+      'xai': 'xAI',
+      'together': 'Together',
+      'perplexity': 'Perplexity',
+      'openrouter': 'OpenRouter',
+    };
+    const rawProvider = (chatbot.ai_provider || config.ai_provider || '').toLowerCase();
+    const provider = providerMap[rawProvider] || rawProvider || 'OpenAI';
+    const model = configuredModel || 'gpt-4o-mini';
     
     return { provider, model };
   };

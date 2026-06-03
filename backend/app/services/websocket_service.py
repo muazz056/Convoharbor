@@ -148,7 +148,14 @@ class WebSocketService:
             # Stream response chunks
             full = ""
             try:
-                for chunk in current_app.llm_service.generate_stream(messages=messages, model_name=chatbot.model or current_app.config.get('DEFAULT_OPENAI_MODEL', 'gpt-4o-mini')):
+                from ..models import AiModel
+                default_model = AiModel.query.filter_by(is_active=True).first()
+                model_name = chatbot.model or (default_model.model_name if default_model else None)
+                if not model_name:
+                    current_app.logger.error("No active AI model found for WebSocket chat")
+                    emit('error', {'message': 'No AI model configured'}, room=room)
+                    return
+                for chunk in current_app.llm_service.generate_stream(messages=messages, model_name=model_name):
                     if not chunk:
                         continue
                     full += chunk

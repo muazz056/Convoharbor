@@ -268,11 +268,10 @@ def generate_embedding_endpoint():
     # Call our dedicated service to do the heavy lifting
     embedding_results = embedding_service.generate_embeddings_for_texts(texts_to_embed)
 
-    # --- Re-structure the response for A/B testing ---
-    # We want to associate the generated embeddings back to their original chunks.
+    # --- Re-structure the response ---
     processed_chunks = []
-    openai_embeddings = embedding_results.get("openai_embeddings")
-    gemini_embeddings = embedding_results.get("gemini_embeddings")
+    embeddings_list = embedding_results.get("embeddings") or []
+    embed_provider = embedding_results.get("provider", "openai")
 
     for i, chunk in enumerate(chunks):
         new_chunk = {
@@ -280,19 +279,14 @@ def generate_embedding_endpoint():
             "page_content": chunk.get("page_content", ""),
             "embeddings": {}
         }
-        if openai_embeddings and i < len(openai_embeddings):
-            new_chunk["embeddings"]["openai"] = openai_embeddings[i]
-        
-        if gemini_embeddings and i < len(gemini_embeddings):
-            new_chunk["embeddings"]["gemini"] = gemini_embeddings[i]
-            
+        if embeddings_list and i < len(embeddings_list):
+            new_chunk["embeddings"][embed_provider] = embeddings_list[i]
         processed_chunks.append(new_chunk)
     
-    # Final response payload
     response_data = {
-        "message": "Embeddings generated. See errors for any failures.",
+        "message": "Embeddings generated",
         "processed_chunks": processed_chunks,
-        "errors": embedding_results.get("errors", {})
+        "errors": embedding_results.get("error")
     }
 
     return jsonify(response_data), 200
@@ -537,7 +531,7 @@ def upsert_chunks():
         return jsonify({"error": "Missing 'processed_chunks' in request body"}), 400
     
     chunks = data['processed_chunks']
-    provider = data.get('provider', current_app.config.get('DEFAULT_EMBEDDING_PROVIDER', 'openai'))
+    provider = data.get('provider', 'openai')
 
     try:
         result = current_app.vector_service.upsert(chunks, provider=provider)
@@ -734,50 +728,39 @@ def query_rag_endpoint():
 
     # Extract parameters
     user_query = data['query'].strip()
-    session_id = data.get('session_id') or data.get('session')  # Support both parameter names
+    session_id = data.get('session_id') or data.get('session')
     user_id = data.get('user_id')
     user_role = data.get('role', 'General Assistant')
-    llm_provider = data.get('llm_provider', current_app.config['DEFAULT_LLM_PROVIDER'])
-    
-    # Validate provider first (before trying to get default model)
-    valid_providers = list(current_app.config['VALID_MODELS'].keys())
-    if llm_provider not in valid_providers:
-        provider_list = ', '.join([f"'{p}'" for p in valid_providers])
+    model_name = data.get('model') or data.get('ai_model')
+    llm_provider = data.get('llm_provider')
+
+    if not model_name:
+        from ..models import AiModel
+        default_model = AiModel.query.filter_by(is_active=True).first()
+        if default_model:
+            model_name = default_model.model_name
+            llm_provider = llm_provider or default_model.provider
+        else:
+            return jsonify({"error": "No AI model specified and no active model found. Ask super admin to configure a model."}), 400
+
+    from ..models import AiModel
+    ai_model_obj = AiModel.query.filter_by(model_name=model_name, is_active=True).first()
+    if not ai_model_obj:
+        valid_models = [m.model_name for m in AiModel.query.filter_by(is_active=True).all()]
         return jsonify({
-            "error": f"Invalid provider '{llm_provider}'.",
-            "suggestion": f"Valid providers: {provider_list}",
-            "valid_providers": valid_providers,
-            "note": "Check your 'llm_provider' parameter and ensure it matches one of the supported providers."
+            "error": f"Model '{model_name}' is not active or does not exist.",
+            "valid_models": valid_models,
+            "note": "Only models set by super admin are available."
         }), 400
-    
-    model_name = data.get('model', current_app.config[f'DEFAULT_{llm_provider.upper()}_MODEL'])
+
     top_k = min(data.get('top_k', 5), 20)
     temperature = max(0.0, min(data.get('temperature', 0.1), 1.0))
     mode = data.get('mode', 'strict')
     metadata_filter = data.get('filter')
 
-    # Validate model with helpful suggestions
-    valid_models = current_app.config['VALID_MODELS'].get(llm_provider, [])
-    if model_name not in valid_models:
-        if valid_models:
-            # Create a helpful suggestion message
-            suggestion_models = ', '.join([f"'{model}'" for model in valid_models[:5]])  # Show first 5 models
-            more_text = f" (+{len(valid_models)-5} more)" if len(valid_models) > 5 else ""
-            
-            return jsonify({
-                "error": f"Invalid model '{model_name}' for provider '{llm_provider}'.",
-                "suggestion": f"Valid models for '{llm_provider}': {suggestion_models}{more_text}",
-                "valid_models": valid_models,
-                "note": "Check your 'model' parameter and ensure it matches one of the valid models for your chosen 'llm_provider'."
-            }), 400
-        else:
-            return jsonify({
-                "error": f"No valid models configured for provider '{llm_provider}'.",
-                "suggestion": "Please check your configuration or use a different provider.",
-                "valid_providers": list(current_app.config['VALID_MODELS'].keys())
-            }), 400
+    if not ai_model_obj:
+        return jsonify({"error": "AI model not found. Ask super admin to configure a model."}), 503
 
-    # Check if services are available
     if not current_app.vector_service:
         return jsonify({"error": "Vector database service is not available. Please check your configuration."}), 503
 
@@ -885,46 +868,30 @@ def query_rag_endpoint():
         
         embedding_results = embedding_service.generate_embeddings_for_texts(texts=[embedding_query])
         
-        if embedding_results.get("errors") and not embedding_results.get("openai_embeddings") and not embedding_results.get("gemini_embeddings"):
-            current_app.logger.error("❌ All embedding providers failed")
+        embed_error = embedding_results.get("error")
+        embeddings_list = embedding_results.get("embeddings")
+        if embed_error or not embeddings_list or not embeddings_list[0]:
+            current_app.logger.error(f"❌ Embedding failed: {embed_error or 'no embeddings returned'}")
             return jsonify({
                 "error": "Unable to generate embeddings",
-                "details": embedding_results.get("errors")
+                "details": embed_error or "No embeddings returned by provider"
             }), 503
 
-        # Use the appropriate embedding based on provider
-        # CRITICAL FIX: Always use OpenAI embeddings since Pinecone index expects 3072 dimensions
-        # The LLM provider (for text generation) should be independent of embedding provider
-        if embedding_results.get("openai_embeddings"):
-            query_embedding = embedding_results["openai_embeddings"][0]
-        elif embedding_results.get("gemini_embeddings"):
-            # Fallback to Gemini only if OpenAI fails (but this may cause dimension mismatch)
-            current_app.logger.warning("⚠️ Using Gemini embeddings - may cause dimension mismatch with Pinecone")
-            query_embedding = embedding_results["gemini_embeddings"][0]
-        else:
-            # Fallback to any available embedding
-            query_embedding = (
-                embedding_results.get("openai_embeddings", [None])[0] or 
-                embedding_results.get("gemini_embeddings", [None])[0]
-            )
-        
-        if query_embedding is None:
-            current_app.logger.error("❌ No embeddings generated and no error reported")
-            return jsonify({
-                "error": "Failed to generate embeddings for the query",
-                "suggestion": "Please check your API keys in the .env file"
-            }), 503
-        
+        query_embedding = embeddings_list[0]
+        embed_provider = embedding_results.get("provider", "openai")
+
         # Aggressive top_k optimization based on complexity
         if classification.get('complexity') == 'simple':
             optimized_top_k = min(top_k, 2)  # Even fewer sources for simple queries
         else:
             optimized_top_k = min(top_k, 4)  # Reduce max sources
         
+        query_filter = metadata_filter or {}
+        query_filter['provider'] = embed_provider
         retrieved_contexts = current_app.vector_service.query(
             query_embedding=query_embedding, 
             top_k=optimized_top_k, 
-            filter_dict=metadata_filter
+            filter_dict=query_filter
         )
         
         retrieval_time = time.time() - retrieval_start

@@ -22,4 +22,5 @@ if __name__ == '__main__':
     # Use port 5001 to avoid conflicts with Apple's AirTunes on port 5000
     # Use WebSocket server instead of regular Flask server
     from app.services.websocket_service import websocket_service
-    websocket_service.socketio.run(app, host='127.0.0.1', port=5001, debug=True, use_reloader=False)
+    use_reloader = os.getenv('FLASK_RELOAD', 'true').lower() in ['true', '1', 't']
+    websocket_service.socketio.run(app, host='127.0.0.1', port=5001, debug=True, use_reloader=use_reloader)

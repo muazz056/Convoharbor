@@ -10,9 +10,17 @@ from sqlalchemy.exc import IntegrityError
 from . import api
 from ..decorators import login_required
 from ..models import Chatbot, DataSource, AiModel
+from ..models.ai_model import SUPPORTED_PROVIDERS
 from .. import db
 from flasgger.utils import swag_from
 from werkzeug.utils import secure_filename
+
+
+def _get_provider_api_type(provider_id):
+    for p in SUPPORTED_PROVIDERS:
+        if p['id'] == provider_id:
+            return p['api_type']
+    return 'openai'
 
 
 def resolve_chatbot_api_keys(chatbot_id):
@@ -30,7 +38,7 @@ def resolve_chatbot_api_keys(chatbot_id):
     api_key = ai_model.get_api_key()
     if not api_key:
         return None
-    api_type = ai_model.api_type or 'openai'
+    api_type = _get_provider_api_type(ai_model.provider)
     return {api_type: api_key}
 
 
@@ -180,10 +188,40 @@ def upload_files():
                             )
                             result = process_uploaded_files([file_storage], api_keys=api_keys)
 
+                        # Generate embeddings and store in vector database
+                        chunks = result.get('successful_chunks', [])
+                        if chunks and current_app.vector_service:
+                            try:
+                                from ..services import embedding_service
+                                chunk_texts = [c.page_content for c in chunks]
+                                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
+                                embeddings_list = embedding_results.get("embeddings") or []
+                                embed_provider = embedding_results.get("provider", "openai")
+
+                                processed_chunks = []
+                                for i, chunk in enumerate(chunks):
+                                    pc = {
+                                        "metadata": chunk.metadata,
+                                        "page_content": chunk.page_content,
+                                        "embeddings": {}
+                                    }
+                                    if embeddings_list and i < len(embeddings_list):
+                                        pc["embeddings"][embed_provider] = embeddings_list[i]
+                                    processed_chunks.append(pc)
+
+                                if processed_chunks:
+                                    current_app.vector_service.upsert(processed_chunks, provider=embed_provider)
+                                    _app.logger.info(f"✅ Stored {len(processed_chunks)} chunks in vector DB for {sf['filename']}")
+                            except Exception as embed_err:
+                                _app.logger.error(f"Embedding/vector error for {sf['filename']}: {embed_err}")
+
                         matching_ds.status = 'completed'
+                        ds_doc_id = result.get('doc_ids', {}).get(sf['filename'])
                         matching_ds.meta_data = {
                             **(matching_ds.meta_data or {}),
-                            'processed_chunks': len(result.get('successful_chunks', []))
+                            'processed_chunks': len(result.get('successful_chunks', [])),
+                            'doc_id': ds_doc_id,
+                            'completed_at': datetime.utcnow().isoformat()
                         }
                         db.session.commit()
 
@@ -293,23 +331,23 @@ def upload_callback():
                 )
 
                 chunk_texts = [chunk.page_content for chunk in chunks]
-                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
+                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
 
                 processed_chunks = []
-                openai_embeddings = embedding_results.get("openai_embeddings", [])
+                embeddings_list = embedding_results.get("embeddings") or []
+                embed_provider = embedding_results.get("provider", "openai")
                 for i, chunk in enumerate(chunks):
                     processed_chunk = {
                         "metadata": chunk.metadata,
                         "page_content": chunk.page_content,
                         "embeddings": {}
                     }
-                    if openai_embeddings and i < len(openai_embeddings):
-                        processed_chunk["embeddings"]["openai"] = openai_embeddings[i]
+                    if embeddings_list and i < len(embeddings_list):
+                        processed_chunk["embeddings"][embed_provider] = embeddings_list[i]
                     processed_chunks.append(processed_chunk)
 
                 if current_app.vector_service:
-                    provider = current_app.config.get('DEFAULT_EMBEDDING_PROVIDER', 'openai')
-                    current_app.vector_service.upsert(processed_chunks, provider=provider)
+                    current_app.vector_service.upsert(processed_chunks, provider=embed_provider)
 
                 if os.path.exists(temp_filepath):
                     os.remove(temp_filepath)
@@ -970,10 +1008,12 @@ def get_data_source_chunks(data_source_id):
 
     try:
         # Get chunks from vector store
-        provider = current_app.config.get('DEFAULT_EMBEDDING_PROVIDER', 'openai')
         chunks = []
         
         if current_app.vector_service:
+            # Get embedding provider from config (what was used when storing these)
+            embed_provider = current_app.config.get('EMBEDDINGS_SERVICE_USE', 'openai')
+            
             # Get document ID from metadata
             doc_id = data_source.meta_data.get('doc_id')
             if not doc_id:
@@ -983,7 +1023,7 @@ def get_data_source_chunks(data_source_id):
                 }), 404
             
             # Query vector store for chunks with this doc_id
-            chunks = current_app.vector_service.get_chunks_by_doc_id(doc_id, provider=provider)
+            chunks = current_app.vector_service.get_chunks_by_doc_id(doc_id, provider=embed_provider)
             
             # Format response
             chunk_data = []
@@ -992,9 +1032,9 @@ def get_data_source_chunks(data_source_id):
                     'content': chunk.get('page_content', ''),
                     'metadata': chunk.get('metadata', {}),
                     'embedding_stats': {
-                        'provider': provider,
-                        'vector_length': len(chunk.get('embeddings', {}).get(provider, [])),
-                        'has_embedding': bool(chunk.get('embeddings', {}).get(provider))
+                        'provider': embed_provider,
+                        'vector_length': len(chunk.get('embeddings', {}).get(embed_provider, [])),
+                        'has_embedding': bool(chunk.get('embeddings', {}).get(embed_provider))
                     }
                 }
                 chunk_data.append(chunk_info)
@@ -1004,7 +1044,7 @@ def get_data_source_chunks(data_source_id):
                 'source_name': data_source.source_name,
                 'chunk_count': len(chunk_data),
                 'chunks': chunk_data,
-                'embedding_provider': provider
+                'embedding_provider': embed_provider
             }), 200
         else:
             return jsonify({
@@ -1141,7 +1181,7 @@ def _process_web_content_async(app, db, data_source_id, document):
                     print("❌ [BG-PRINT] FAILED before embeddings: No valid chunk texts.")
                     raise ValueError("No valid chunk texts found for embedding generation")
                 
-                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
+                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
                 if not embedding_results:
                     print("❌ [BG-PRINT] FAILED after embeddings: No results returned.")
                     raise ValueError("Embedding service returned no results")
@@ -1149,16 +1189,16 @@ def _process_web_content_async(app, db, data_source_id, document):
 
                 # STEP 5: Store results
                 processed_chunks = []
-                openai_embeddings = embedding_results.get("openai_embeddings", [])
-                gemini_embeddings = embedding_results.get("gemini_embeddings", [])
+                embeddings_list = embedding_results.get("embeddings") or []
+                embed_provider = embedding_results.get("provider", "openai")
                 
                 # Combine chunks with embeddings
                 for i, chunk in enumerate(chunks):
+                    embedding = embeddings_list[i] if embeddings_list and i < len(embeddings_list) else None
                     chunk_data = {
                         "content": chunk.page_content,
                         "metadata": chunk.metadata,
-                        "openai_embedding": openai_embeddings[i] if openai_embeddings and i < len(openai_embeddings) else None,
-                        "gemini_embedding": gemini_embeddings[i] if gemini_embeddings and i < len(gemini_embeddings) else None
+                        embed_provider: embedding
                     }
                     processed_chunks.append(chunk_data)
                 
@@ -1171,8 +1211,8 @@ def _process_web_content_async(app, db, data_source_id, document):
                         # Prepare vectors for storage
                         vectors_to_store = []
                         for i, chunk_data in enumerate(processed_chunks):
-                            # Use OpenAI embedding if available, otherwise Gemini
-                            embedding = chunk_data.get("openai_embedding") or chunk_data.get("gemini_embedding")
+                            # Use the embedding from the configured provider
+                            embedding = chunk_data.get(embed_provider)
                             if embedding:
                                 vector_id = f"{doc_id}_{i}"
                                 vectors_to_store.append({
@@ -1180,7 +1220,7 @@ def _process_web_content_async(app, db, data_source_id, document):
                                     "values": embedding,
                                     "metadata": {
                                         **chunk_data["metadata"],
-                                        "page_content": chunk_data["content"],  # ✅ Use page_content key for consistency
+                                        "page_content": chunk_data["content"],
                                         "doc_id": doc_id,
                                         "chunk_index": i
                                     }
@@ -1351,11 +1391,11 @@ def _run_ai_processing(app, db, data_source_id):
 
             # Step 3: Generate embeddings
             chunk_texts = [chunk.page_content for chunk in chunks]
-            embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts, api_keys=api_keys)
+            embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
             
             processed_chunks = []
-            openai_embeddings = embedding_results.get("openai_embeddings", [])
-            gemini_embeddings = embedding_results.get("gemini_embeddings", [])
+            embeddings_list = embedding_results.get("embeddings") or []
+            embed_provider = embedding_results.get("provider", "openai")
             
             for i, chunk in enumerate(chunks):
                 processed_chunk = {
@@ -1363,18 +1403,15 @@ def _run_ai_processing(app, db, data_source_id):
                     "page_content": chunk.page_content,
                     "embeddings": {}
                 }
-                if openai_embeddings and i < len(openai_embeddings):
-                    processed_chunk["embeddings"]["openai"] = openai_embeddings[i]
-                if gemini_embeddings and i < len(gemini_embeddings):
-                    processed_chunk["embeddings"]["gemini"] = gemini_embeddings[i]
+                if embeddings_list and i < len(embeddings_list):
+                    processed_chunk["embeddings"][embed_provider] = embeddings_list[i]
                 processed_chunks.append(processed_chunk)
             
             app.logger.info(f"✅ [BG] Generated embeddings for {len(processed_chunks)} chunks")
 
             # Step 4: Store in vector database
             if app.vector_service:
-                provider = app.config.get('DEFAULT_EMBEDDING_PROVIDER', 'openai')
-                vector_result = app.vector_service.upsert(processed_chunks, provider=provider)
+                vector_result = app.vector_service.upsert(processed_chunks, provider=embed_provider)
                 app.logger.info(f"✅ [BG] Stored {vector_result.get('upserted_count', 0)} chunks in vector DB")
             else:
                 app.logger.warning("⚠️ [BG] Vector service not available, chunks not stored")

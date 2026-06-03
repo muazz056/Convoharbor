@@ -1,40 +1,51 @@
 import React, { useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import './OAuthCallback.css';
 
 const OAuthCallback = () => {
     const { login } = useAuth();
     const location = useLocation();
-    const navigate = useNavigate();
+
+    const decodeJwtPayload = (token) => {
+        try {
+            const parts = token.split('.');
+            if (parts.length !== 3) return null;
+            const payload = parts[1];
+            const decoded = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
+            return JSON.parse(decoded);
+        } catch {
+            return null;
+        }
+    };
 
     useEffect(() => {
-        const handleOAuthCallback = () => {
-            const params = new URLSearchParams(location.search);
-            const token = params.get('token');
-            const userParam = params.get('user');
+        const params = new URLSearchParams(location.search);
+        const token = params.get('token');
 
-            if (token && userParam) {
-                try {
-                    const user = JSON.parse(userParam);
-                    // Use the login function from AuthContext to set the session
-                    login(token, user);
-                    // Redirect to the main dashboard or overview page after successful login
-                    navigate('/overview');
-                } catch (error) {
-                    console.error("Failed to parse user data from URL", error);
-                    // Redirect to login page on error
-                    navigate('/login');
-                }
-            } else {
-                console.error("OAuth callback is missing token or user data.");
-                // Redirect to login page if token/user is missing
-                navigate('/login');
+        if (token) {
+            try {
+                const payload = decodeJwtPayload(token);
+                const user = {
+                    id: payload.user_id,
+                    email: payload.email,
+                    firstName: payload.first_name,
+                    lastName: payload.last_name,
+                    role: payload.role,
+                    tenant_id: payload.tenant_id,
+                    permissions: payload.permissions || {}
+                };
+                login(token, user);
+                window.location.href = '/overview';
+            } catch (error) {
+                console.error("OAuth callback error:", error);
+                window.location.href = '/login';
             }
-        };
-
-        handleOAuthCallback();
-    }, [location, login, navigate]);
+        } else {
+            console.error("OAuth callback is missing token.");
+            window.location.href = '/login';
+        }
+    }, []);
 
     return (
         <div className="oauth-callback-container">

@@ -6,17 +6,18 @@ _language_cache = {}
 def _is_placeholder_key(api_key):
     return not api_key or api_key.startswith('your-')
 
-def _configure_llm(api_key=None, model_name="gemini-1.5-flash-latest"):
+def _configure_llm(api_key=None, model_name="gemini-1.5-flash"):
     api_key = api_key or current_app.config.get('GEMINI_API_KEY')
     if not api_key or _is_placeholder_key(api_key):
         return None
     genai.configure(api_key=api_key)
 
     model_names_to_try = [
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash-002",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
         "gemini-2.0-flash-exp",
-        "gemini-1.5-pro-latest",
+        "gemini-1.5-flash-002",
+        "gemini-1.5-pro-002",
         "gemini-pro"
     ]
 
@@ -72,7 +73,7 @@ def translate_text(text: str, target_language: str, source_language: str = "auto
     if not text.strip():
         return None
 
-    model = _configure_llm(api_key=api_key, model_name='gemini-1.5-flash-latest')
+    model = _configure_llm(api_key=api_key, model_name='gemini-1.5-flash')
     if not model:
         return None
 

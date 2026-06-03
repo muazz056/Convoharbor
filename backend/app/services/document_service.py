@@ -16,6 +16,7 @@ LOADER_MAPPING = {
 def process_uploaded_files(files, api_keys=None):
     successful_chunks = []
     failed_files = []
+    file_doc_ids = {}
 
     cloudinary_service = getattr(current_app, 'cloudinary_service', None)
 
@@ -26,6 +27,7 @@ def process_uploaded_files(files, api_keys=None):
 
         try:
             doc_id = str(uuid.uuid4())
+            file_doc_ids[filename] = doc_id
             file.save(temp_filepath)
 
             if cloudinary_service:
@@ -74,4 +76,4 @@ def process_uploaded_files(files, api_keys=None):
             if os.path.exists(temp_dir):
                 os.rmdir(temp_dir)
 
-    return {"successful_chunks": successful_chunks, "failed_files": failed_files}
+    return {"successful_chunks": successful_chunks, "failed_files": failed_files, "doc_ids": file_doc_ids}

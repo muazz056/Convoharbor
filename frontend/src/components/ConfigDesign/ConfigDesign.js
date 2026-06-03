@@ -96,23 +96,8 @@ import widgetService from '../../services/widget.service';
         // Load mode configuration
         setMode(config.mode || 'strict');
 
-        // Determine the provider from ai_provider or model (DB-driven)
-        if (normalized.model && normalized.model.startsWith('db:')) {
-          // DB model - find provider from availableModels by matching the value
-          const matchedProvider = Object.keys(availableModels).find(provider =>
-            availableModels[provider]?.some(m => m.value === normalized.model)
-          );
-          if (matchedProvider) setSelectedProvider(matchedProvider);
-        } else if (response.ai_provider) {
-          const p = response.ai_provider.toLowerCase();
-          // Match against available provider keys
-          const matchedKey = Object.keys(availableModels).find(key => p.includes(key));
-          setSelectedProvider(matchedKey || '');
-        } else if (normalized.model) {
-          const modelLower = normalized.model.toLowerCase();
-          const matchedKey = Object.keys(availableModels).find(key => modelLower.includes(key));
-          setSelectedProvider(matchedKey || '');
-        }
+        // Store raw provider for matching when models load
+        setSelectedProvider((response.ai_provider || '').toLowerCase());
       } catch (err) {
         setError(err.message || 'Failed to fetch chatbot data');
       } finally {
@@ -126,6 +111,22 @@ import widgetService from '../../services/widget.service';
     fetchChatbot();
     }
   }, [chatbotId, navigate]);
+
+  // Match selectedProvider to availableModels once both are loaded
+  useEffect(() => {
+    if (!formData || !formData.model || Object.keys(availableModels).length === 0) return;
+    const modelVal = formData.model;
+    if (modelVal.startsWith('db:')) {
+      const matched = Object.keys(availableModels).find(provider =>
+        availableModels[provider]?.some(m => m.value === modelVal)
+      );
+      if (matched) setSelectedProvider(matched);
+    } else {
+      const lower = modelVal.toLowerCase();
+      const matched = Object.keys(availableModels).find(key => lower.includes(key));
+      if (matched) setSelectedProvider(matched);
+    }
+  }, [formData, availableModels]);
 
 
   const handleUpdate = async (e) => {
@@ -418,6 +419,85 @@ import widgetService from '../../services/widget.service';
                     )}
                 </div>
 
+
+                {/* Advanced Settings (Super Admin only) */}
+                {(isSuperAdminMode || user?.role === 'super_admin') && (
+                <div className="form-section">
+                  <h3 className="form-section-title">⚙️ Advanced Settings</h3>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label>
+                        <span className="field-icon">📊</span>
+                        Top K
+                      </label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={formData?.topK ?? 10}
+                        onChange={(e) => setFormData({...formData, topK: parseInt(e.target.value) || 0})}
+                        min="1"
+                        max="100"
+                        placeholder="10"
+                      />
+                      <span className="helper-text">Number of knowledge base chunks to retrieve (1-100)</span>
+                    </div>
+
+                    <div className="form-group">
+                      <label>
+                        <span className="field-icon">🎯</span>
+                        Mode
+                      </label>
+                      <select
+                        className="form-control"
+                        value={mode}
+                        onChange={(e) => setMode(e.target.value)}
+                      >
+                        <option value="strict">🔒 Strict (KB only)</option>
+                        <option value="permissive">🔓 Permissive (KB + general knowledge)</option>
+                      </select>
+                      <span className="helper-text">Strict mode only answers from knowledge base; permissive mode also uses general AI knowledge</span>
+                    </div>
+
+                    <div className="form-group">
+                      <label>
+                        <span className="field-icon">🌡️</span>
+                        Temperature
+                      </label>
+                      <div className="form-range-wrapper">
+                        <input
+                          type="range"
+                          className="form-range"
+                          value={formData?.temperature ?? 0.7}
+                          onChange={(e) => setFormData({...formData, temperature: parseFloat(e.target.value)})}
+                          min="0"
+                          max="2"
+                          step="0.1"
+                        />
+                        <span className="range-value">{formData?.temperature ?? 0.7}</span>
+                      </div>
+                      <span className="helper-text">Controls randomness: lower = more focused, higher = more creative (0-2)</span>
+                    </div>
+
+                    <div className="form-group">
+                      <label>
+                        <span className="field-icon">📏</span>
+                        Max Tokens
+                      </label>
+                      <input
+                        type="number"
+                        className="form-control"
+                        value={formData?.maxTokens ?? 2048}
+                        onChange={(e) => setFormData({...formData, maxTokens: parseInt(e.target.value) || 0})}
+                        min="64"
+                        max="32000"
+                        step="64"
+                        placeholder="2048"
+                      />
+                      <span className="helper-text">Maximum length of the AI response in tokens (64-32000)</span>
+                    </div>
+                  </div>
+                </div>
+                )}
 
                 {/* Theme Customization */}
                 <div className="form-section">

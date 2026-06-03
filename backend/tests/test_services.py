@@ -47,15 +47,14 @@ class TestEmbeddingService:
     
     @patch('app.services.embedding_service.OpenAIEmbeddings')
     @patch('app.services.embedding_service.GoogleGenerativeAIEmbeddings')
-    def test_generate_embeddings_all_succeed(self, mock_gemini_embed, mock_openai_embed, app):
+    def test_generate_embeddings_openai(self, mock_gemini_embed, mock_openai_embed, app):
         mock_openai_embed.return_value.embed_documents.return_value = [[0.1, 0.2]]
-        mock_gemini_embed.return_value.embed_documents.return_value = [[0.4, 0.5]]
         
         results = embedding_service.generate_embeddings_for_texts(["test text"])
         
-        assert not results["errors"]
-        assert results["openai_embeddings"] == [[0.1, 0.2]]
-        assert results["gemini_embeddings"] == [[0.4, 0.5]]
+        assert results.get("error") is None
+        assert results["embeddings"] == [[0.1, 0.2]]
+        assert results["provider"] == "openai"
 
 class TestScrapedContentService:
     """Tests for the scraped content processing service."""

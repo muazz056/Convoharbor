@@ -127,22 +127,25 @@ def create_app(config_name='default'):
          supports_credentials=True)
 
     # ============================================================
-    # Initialize Redis (FAIL FAST if unavailable)
+    # Initialize Redis (optional - controlled by REDIS_ENABLED)
     # ============================================================
-    try:
-        from .services.redis_service import RedisService
-        app.redis_service = RedisService(
-            redis_url=app.config.get('REDIS_URL', 'redis://localhost:6379/0'),
-            socket_timeout=app.config.get('REDIS_SOCKET_TIMEOUT', 5),
-            cache_ttl=app.config.get('REDIS_CACHE_TTL', 300),
-            rate_limit=app.config.get('REDIS_RATE_LIMIT', 120),
-            app=app
-        )
-        current_app = app
-        app.logger.info("Redis service initialized on startup")
-    except Exception as e:
-        app.logger.error(f"CRITICAL: Redis initialization failed: {e}")
-        raise RuntimeError(f"Redis is required but failed to initialize: {e}")
+    if app.config.get('REDIS_ENABLED', False):
+        try:
+            from .services.redis_service import RedisService
+            app.redis_service = RedisService(
+                redis_url=app.config.get('REDIS_URL', 'redis://localhost:6379/0'),
+                socket_timeout=app.config.get('REDIS_SOCKET_TIMEOUT', 5),
+                cache_ttl=app.config.get('REDIS_CACHE_TTL', 300),
+                rate_limit=app.config.get('REDIS_RATE_LIMIT', 120),
+                app=app
+            )
+            app.logger.info("Redis service initialized on startup")
+        except Exception as e:
+            app.logger.warning(f"Redis initialization failed (set REDIS_ENABLED=false to skip): {e}")
+            app.redis_service = None
+    else:
+        app.redis_service = None
+        app.logger.info("Redis disabled (set REDIS_ENABLED=true to enable)")
 
     # Initialize Cloudinary service
     try:

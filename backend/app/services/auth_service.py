@@ -26,7 +26,7 @@ class AuthService:
         """Verify a password against its hash."""
         return check_password_hash(password_hash, password)
         
-    def generate_token(self, user_id: int, tenant_id: str, role: str, token_type: str = 'access') -> str:
+    def generate_token(self, user_id: int, tenant_id: str, role: str, token_type: str = 'access', user_data: dict = None) -> str:
         """Generate a JWT token for a user.
         
         Args:
@@ -34,6 +34,7 @@ class AuthService:
             tenant_id: The tenant's ID
             role: The user's role
             token_type: Either 'access' (default) or 'refresh'
+            user_data: Optional dict with user info (email, first_name, last_name)
             
         Returns:
             str: JWT token that expires in 5 days for access tokens, 7 days for refresh tokens
@@ -49,6 +50,11 @@ class AuthService:
             'type': token_type,
             'exp': expiry
         }
+        if user_data:
+            payload['email'] = user_data.get('email')
+            payload['first_name'] = user_data.get('first_name')
+            payload['last_name'] = user_data.get('last_name')
+            payload['permissions'] = user_data.get('permissions', {})
         return jwt.encode(payload, self.secret_key, algorithm='HS256')
         
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:

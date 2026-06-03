@@ -203,16 +203,12 @@ def create_chatbot():
     elif ai_model_name:
         ai_model_obj = AiModel.query.filter_by(model_name=ai_model_name, is_active=True).first()
         if not ai_model_obj:
-            valid_db = [m.model_name for m in AiModel.query.filter_by(is_active=True).all()]
-            valid_models = list(set(valid_db + [
-                m for providers in current_app.config.get('VALID_MODELS', {}).values() for m in providers
-            ]))
-            if ai_model_name not in valid_models and valid_db:
-                return jsonify({
-                    'error': 'Invalid AI model',
-                    'message': f'Model "{ai_model_name}" is not available',
-                    'valid_models': valid_models
-                }), 400
+            valid_models = [m.model_name for m in AiModel.query.filter_by(is_active=True).all()]
+            return jsonify({
+                'error': 'Invalid AI model',
+                'message': f'Model "{ai_model_name}" is not available. Only models set by super admin are allowed.',
+                'valid_models': valid_models
+            }), 400
     else:
         ai_model_obj = AiModel.query.filter_by(is_active=True).first()
         if ai_model_obj:
@@ -988,11 +984,9 @@ def update_chatbot(chatbot_id):
         
         if incoming_model is not None:
             ai_model = incoming_model
-            valid_models = []
-            for models in current_app.config['VALID_MODELS'].values():
-                valid_models.extend(models)
+            valid_models = [m.model_name for m in AiModel.query.filter_by(is_active=True).all()]
             
-            current_app.logger.info(f"✅ Valid models: {valid_models}")
+            current_app.logger.info(f"✅ Valid models from DB: {valid_models}")
             current_app.logger.info(f"🔍 Checking if {ai_model} is in valid models")
             
             if ai_model not in valid_models:
@@ -1019,19 +1013,19 @@ def update_chatbot(chatbot_id):
         
         if 'temperature' in data:
             temperature = data['temperature']
-            if not isinstance(temperature, (int, float)) or temperature < 0.0 or temperature > 1.0:
+            if not isinstance(temperature, (int, float)) or temperature < 0.0 or temperature > 2.0:
                 return jsonify({
                     'error': 'Invalid temperature',
-                    'message': 'Temperature must be a number between 0.0 and 1.0'
+                    'message': 'Temperature must be a number between 0.0 and 2.0'
                 }), 400
             config['temperature'] = temperature
         
         if 'max_tokens' in data:
             max_tokens = data['max_tokens']
-            if not isinstance(max_tokens, int) or max_tokens < 50 or max_tokens > 4000:
+            if not isinstance(max_tokens, int) or max_tokens < 64 or max_tokens > 32000:
                 return jsonify({
                     'error': 'Invalid max_tokens',
-                    'message': 'max_tokens must be an integer between 50 and 4000'
+                    'message': 'max_tokens must be an integer between 64 and 32000'
                 }), 400
             config['max_tokens'] = max_tokens
         

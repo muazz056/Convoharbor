@@ -85,7 +85,13 @@ def oauth_callback(provider):
     token = current_app.auth_service.generate_token(
         user.id,
         tenant.tenant_id,  # Use tenant UUID, not user.tenant_id (integer)
-        user.role
+        user.role,
+        user_data={
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'permissions': current_app.auth_service.get_user_permissions(user),
+        }
     )
     
     return jsonify({
@@ -95,6 +101,7 @@ def oauth_callback(provider):
             'email': user.email,
             'role': user.role,
             'first_name': user.first_name,
-            'last_name': user.last_name
+            'last_name': user.last_name,
+            'permissions': current_app.auth_service.get_user_permissions(user),
         }
     })

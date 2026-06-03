@@ -39,9 +39,6 @@ class VectorService:
         update_records = []
         for i, chunk in enumerate(chunks_with_embeddings):
             embedding = chunk.get("embeddings", {}).get(provider)
-            if not embedding:
-                current_app.logger.warning(f"Chunk {i} missing '{provider}' embedding. Skipping.")
-                continue
 
             metadata = chunk.get("metadata", {})
             page_content = chunk.get("page_content") or metadata.get("page_content", "")
@@ -49,7 +46,6 @@ class VectorService:
 
             existing = existing_by_vid.get(vector_id)
             if existing:
-                # Queue for update
                 existing.page_content = page_content
                 existing.meta_data = metadata
                 existing.provider = provider
@@ -74,17 +70,22 @@ class VectorService:
                 })
 
         # Bulk insert all new records in ONE query
+        skipped = len(chunks_with_embeddings) - len(new_records) - len(update_records)
         if new_records:
             db.session.bulk_insert_mappings(DocumentEmbedding, new_records)
 
-        # Flush to get IDs before commit (bulk_insert already runs in current transaction)
         db.session.commit()
 
         vectors_created = len(new_records) + len(update_records)
-        current_app.logger.info(
-            f"Upserted {vectors_created} vectors to pgvector "
-            f"(inserted={len(new_records)}, updated={len(update_records)})"
-        )
+        if skipped:
+            current_app.logger.warning(
+                f"Upserted {vectors_created} vectors ({skipped} chunks had no '{provider}' embedding)"
+            )
+        else:
+            current_app.logger.info(
+                f"Upserted {vectors_created} vectors to pgvector "
+                f"(inserted={len(new_records)}, updated={len(update_records)})"
+            )
 
         self._invalidate_vector_cache()
 
@@ -164,9 +165,12 @@ class VectorService:
                     return self._dicts_to_docs(cached)
 
             query_embedding = None
+            embed_provider = 'openai'
             try:
                 embedding_result = current_app.embedding_service.generate_embeddings_for_texts([query])
-                query_embedding = embedding_result.get('openai_embeddings', [None])[0]
+                embeddings_list = embedding_result.get("embeddings")
+                embed_provider = embedding_result.get("provider", "openai")
+                query_embedding = embeddings_list[0] if embeddings_list else None
             except Exception as e:
                 current_app.logger.error(f"Failed to generate embedding: {e}")
 
@@ -174,7 +178,7 @@ class VectorService:
                 current_app.logger.warning("Failed to generate query embedding")
                 return []
 
-            filter_dict = {}
+            filter_dict = {"provider": embed_provider}
             if chatbot_id is not None:
                 filter_dict["chatbot_id"] = chatbot_id
 
