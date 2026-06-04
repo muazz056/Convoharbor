@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from .. import db
 
@@ -7,6 +8,8 @@ try:
 except ImportError:
     Vector = None
     PGVECTOR_AVAILABLE = False
+
+VECTOR_DIMENSION = int(os.environ.get('VECTOR_DIMENSION', '3072'))
 
 
 def _vector_col(dim):
@@ -28,8 +31,8 @@ class DocumentEmbedding(db.Model):
     chatbot_id = db.Column(db.Integer, db.ForeignKey('chatbots.id'), nullable=True, index=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), nullable=True, index=True)
     provider = db.Column(db.String(20), nullable=False, default='openai')
-    embedding_openai = _vector_col(3072)
-    embedding_gemini = _vector_col(3072)
+    embedding_openai = _vector_col(VECTOR_DIMENSION)
+    embedding_gemini = _vector_col(VECTOR_DIMENSION)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self):
