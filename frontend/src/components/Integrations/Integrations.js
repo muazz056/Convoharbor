@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Integrations.css';
-import InnerNavbar from '../navbar/InnerNavbar';
-import Sidebar from '../Sidebar/Sidebar';
+
 import SimpleLoader from '../common/SimpleLoader';
 import { useAuth } from '../../contexts/AuthContext';
 import { chatbotService } from '../../services/chatbot.service';
@@ -92,27 +91,15 @@ const Integrations = () => {
   if (loading) {
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          
-          <div className="main-content">
-            <InnerNavbar />
             <div className="page" id="integrations">
               <SimpleLoader message="Loading chatbots..." />
             </div>
-          </div>
-        </div>
       </>
     );
   }
 
   return (
     <>
-      <div className="layout-container">
-        <Sidebar />
-        
-        <div className="main-content">
-          <InnerNavbar />
           <div className="page" id="integrations">
             <div className="page-header">
               <h1 className="page-title">🔗 Integrations</h1>
@@ -223,8 +210,6 @@ const Integrations = () => {
             </div>
           )}
           </div>
-        </div>
-      </div>
 
       <EmbedScriptModal 
         isOpen={isEmbedOpen} 

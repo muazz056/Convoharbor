@@ -1,6 +1,4 @@
-import InnerNavbar from '../navbar/InnerNavbar'
 import "./Overview.css";
-import Sidebar from '../Sidebar/Sidebar';
 import SimpleLoader from '../common/SimpleLoader';
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -284,12 +282,6 @@ const Overview = () => {
   }, [loading, overviewData]); // Reinitialize when data loads
 
     return (
-      <div className="layout-container">
-        <Sidebar />
-        <div className="main-content">
-          <InnerNavbar />
-          {/* Overview content */}
-
         <div className="container mt-5">
                   <div className="page-header">
             <h1 className="overview-page-title">Dashboard</h1>
@@ -472,8 +464,6 @@ const Overview = () => {
 
           {/* End Overview content */}
         </div>
-      </div>
-      </div>
     );
   };
 

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { chatbotService } from '../../services/chatbot.service';
-import Navbar from '../navbar/navbar';
-import Sidebar from '../Sidebar/Sidebar';
+
 import SimpleLoader from '../common/SimpleLoader';
 import './ManageChatbots.css';
 
@@ -179,26 +178,12 @@ const ManageChatbots = () => {
     };
 
     if (loading) {
-        return (
-            <div className="manage-chatbots-page">
-                <Navbar />
-                <div className="manage-chatbots-container">
-                    <Sidebar />
-                    <div className="manage-chatbots-content">
-                        <SimpleLoader message="Loading all chatbots..." />
-                    </div>
-                </div>
-            </div>
-        );
+        return <SimpleLoader message="Loading all chatbots..." />;
     }
 
     return (
-        <div className="manage-chatbots-page">
-            <Navbar />
-            <div className="manage-chatbots-container">
-                <Sidebar />
-                <div className="manage-chatbots-content">
-                    <div className="manage-chatbots-header">
+        <div className="manage-chatbots-content" style={{ border: 'none', padding: 0, background: 'transparent' }}>
+            <div className="manage-chatbots-header">
                         <h1>🤖 Manage All Chatbots</h1>
                         <p className="header-subtitle">
                             Manage all chatbots across all tenants
@@ -438,8 +423,6 @@ const ManageChatbots = () => {
                             )})
                         )}
                     </div>
-                </div>
-            </div>
         </div>
     );
 };

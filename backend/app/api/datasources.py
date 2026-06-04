@@ -200,8 +200,11 @@ def upload_files():
 
                                 processed_chunks = []
                                 for i, chunk in enumerate(chunks):
+                                    chunk_meta = dict(chunk.metadata) if chunk.metadata else {}
+                                    chunk_meta['chatbot_id'] = int(matching_ds.chatbot_id)
+                                    chunk_meta['tenant_id'] = int(matching_ds.tenant_id)
                                     pc = {
-                                        "metadata": chunk.metadata,
+                                        "metadata": chunk_meta,
                                         "page_content": chunk.page_content,
                                         "embeddings": {}
                                     }
@@ -211,7 +214,7 @@ def upload_files():
 
                                 if processed_chunks:
                                     current_app.vector_service.upsert(processed_chunks, provider=embed_provider)
-                                    _app.logger.info(f"✅ Stored {len(processed_chunks)} chunks in vector DB for {sf['filename']}")
+                                    _app.logger.info(f"✅ Stored {len(processed_chunks)} chunks in vector DB for {sf['filename']} (chatbot_id={matching_ds.chatbot_id})")
                             except Exception as embed_err:
                                 _app.logger.error(f"Embedding/vector error for {sf['filename']}: {embed_err}")
 

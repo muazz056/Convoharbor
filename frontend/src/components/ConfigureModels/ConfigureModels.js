@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { modelService } from '../../services/models.service';
-import Navbar from '../navbar/navbar';
-import Sidebar from '../Sidebar/Sidebar';
+
 import SimpleLoader from '../common/SimpleLoader';
 import './ConfigureModels.css';
 
@@ -120,26 +119,12 @@ const ConfigureModels = () => {
     };
 
     if (loading) {
-        return (
-            <div className="configure-models-page">
-                <Navbar />
-                <div className="configure-models-container">
-                    <Sidebar />
-                    <div className="configure-models-content">
-                        <SimpleLoader message="Loading models..." />
-                    </div>
-                </div>
-            </div>
-        );
+        return <SimpleLoader message="Loading models..." />;
     }
 
     return (
-        <div className="configure-models-page">
-            <Navbar />
-            <div className="configure-models-container">
-                <Sidebar />
-                <div className="configure-models-content">
-                    <div className="configure-models-header">
+        <div className="configure-models-content" style={{ border: 'none', padding: 0, background: 'transparent' }}>
+            <div className="configure-models-header">
                         <h1>Configure AI Models</h1>
                         <p className="header-subtitle">Add, edit, and manage AI models across all providers</p>
                         {error && <div className="error-message">{error}</div>}
@@ -254,8 +239,6 @@ const ConfigureModels = () => {
                             </tbody>
                         </table>
                     </div>
-                </div>
-            </div>
         </div>
     );
 };

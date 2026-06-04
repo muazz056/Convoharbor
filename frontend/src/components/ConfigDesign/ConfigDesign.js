@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import InnerNavbar from '../navbar/InnerNavbar';
 import "./ConfigDesign.css";
-import Sidebar from '../Sidebar/Sidebar';
 import { chatbotService } from '../../services/chatbot.service';
 import widgetService from '../../services/widget.service';
 
@@ -191,27 +189,17 @@ import widgetService from '../../services/widget.service';
   
   if (loading || (!isListMode && !formData)) {
     return (
-      <div className="layout-container">
-        <Sidebar />
-        <div className="main-content">
-          <InnerNavbar />
           <div className="page">
             <div className="loading-state">
               <div className="spinner"></div>
               <p>{isListMode ? 'Loading your chatbots...' : 'Loading chatbot configuration...'}</p>
             </div>
           </div>
-        </div>
-      </div>
     );
   }
 
   if (error) {
     return (
-      <div className="layout-container">
-        <Sidebar />
-        <div className="main-content">
-          <InnerNavbar />
           <div className="page">
             <div className="error-state">
               <div className="error-icon">⚠️</div>
@@ -237,8 +225,6 @@ import widgetService from '../../services/widget.service';
               </div>
             </div>
           </div>
-        </div>
-      </div>
     );
   }
 
@@ -246,10 +232,6 @@ import widgetService from '../../services/widget.service';
   if (isListMode) {
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          <div className="main-content">
-            <InnerNavbar />
             <div className="page" id="config-design">
               <div className="page-header">
                 <h1 className="page-title">Configuration & Design</h1>
@@ -283,19 +265,12 @@ import widgetService from '../../services/widget.service';
                 )}
               </div>
             </div>
-          </div>
-        </div>
       </>
     );
   }
 
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          
-          <div className="main-content">
-            <InnerNavbar />
           <div className="page" id="config-design">
             <div className="page-header">
               <h1 className="page-title">Configure Chatbot: {formData?.name || 'Loading...'}</h1>
@@ -400,7 +375,18 @@ import widgetService from '../../services/widget.service';
                           id="model"
                           className="form-control"
                           value={formData.model || ''}
-                          onChange={(e) => setFormData({...formData, model: e.target.value})}
+                          onChange={(e) => {
+                            const modelValue = e.target.value;
+                            const model = availableModels[selectedProvider]?.find(m => m.value === modelValue);
+                            const defaults = model?.fullData || {};
+                            setFormData({
+                              ...formData,
+                              model: modelValue,
+                              temperature: defaults.temperature ?? formData.temperature ?? 0.7,
+                              maxTokens: defaults.max_tokens ?? formData.maxTokens ?? 2048,
+                              topK: defaults.top_k ?? formData.topK ?? 10
+                            });
+                          }}
                           required
                         >
                           <option value="">Select a model...</option>
@@ -598,8 +584,6 @@ import widgetService from '../../services/widget.service';
               </form>
             </div>
           </div>
-        </div>
-        </div>
       </>
     );
   };

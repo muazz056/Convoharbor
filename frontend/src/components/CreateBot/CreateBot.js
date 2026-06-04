@@ -1,8 +1,6 @@
-import InnerNavbar from '../navbar/InnerNavbar'
 import "./CreateBot.css";
 // Reuse the exact preview styles from configuration screen
 import "../ConfigDesign/ConfigDesign.css";
-import Sidebar from '../Sidebar/Sidebar';
 // import ChatWindow from '../ChatWindow/ChatWindow'
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -20,6 +18,7 @@ import { chatbotService } from '../../services/chatbot.service';
       // New state for model selection
       const [availableModels, setAvailableModels] = useState({ openai: [], gemini: [] });
       const [selectedProvider, setSelectedProvider] = useState('');
+      const [modelDefaults, setModelDefaults] = useState({});
 
       const [formData, setFormData] = useState({
         name: '',
@@ -48,6 +47,14 @@ import { chatbotService } from '../../services/chatbot.service';
         // Load models from DB (super admin-configured models only)
         chatbotService.fetchAvailableModels().then(dbModels => {
           setAvailableModels(dbModels);
+          // Store full model data for defaults
+          const defaults = {};
+          Object.values(dbModels).flat().forEach(m => {
+            if (m.db_id && m.fullData) {
+              defaults[m.value] = m.fullData;
+            }
+          });
+          setModelDefaults(defaults);
         });
         
         // Load user data to check permissions
@@ -58,11 +65,6 @@ import { chatbotService } from '../../services/chatbot.service';
       }, []);
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          
-          <div className="main-content">
-            <InnerNavbar />
             <div className="page" id="chatbots" data-aos="fade-up" data-aos-delay="200">
               <div className="page-header">
                 <h1 className="page-title">Create a new chatbot</h1>
@@ -205,7 +207,17 @@ import { chatbotService } from '../../services/chatbot.service';
                           id="model"
                           className="form-control"
                           value={formData.model}
-                          onChange={(e) => setFormData({...formData, model: e.target.value})}
+                          onChange={(e) => {
+                            const modelValue = e.target.value;
+                            const defaults = modelDefaults[modelValue] || {};
+                            setFormData({
+                              ...formData,
+                              model: modelValue,
+                              temperature: defaults.temperature ?? 0.7,
+                              maxTokens: defaults.max_tokens ?? 2048,
+                              topK: defaults.top_k ?? 10
+                            });
+                          }}
                           required
                         >
                           <option value="">Select a model...</option>
@@ -333,9 +345,6 @@ import { chatbotService } from '../../services/chatbot.service';
                 </form>
               </div>
             </div>
-          </div>
-
-        </div>
       </>
     );
   };

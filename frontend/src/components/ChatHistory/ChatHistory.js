@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Sidebar from '../Sidebar/Sidebar';
-import InnerNavbar from '../navbar/InnerNavbar';
+
 import conversationService from '../../services/conversation.service';
 import { chatbotService } from '../../services/chatbot.service';
 import './ChatHistory.css';
@@ -163,26 +162,14 @@ const ChatHistory = () => {
 
     if (state.loading) {
   return (
-      <div className="layout-container">
-        <Sidebar />
-                <div className="layout-content">
-                    <InnerNavbar />
-                    <div className="main-content chat-history-page">
-                        <div className="loading-container">
+                    <div className="loading-container">
                             <div className="spinner" />
                             <p>Loading…</p>
                         </div>
-                    </div>
-                </div>
-            </div>
         );
     }
 
     return (
-        <div className="layout-container">
-            <Sidebar />
-        <div className="main-content">
-          <InnerNavbar />
                 <div className="page" id="chat-history">
             <div className="page-header">
                         <div>
@@ -235,11 +222,11 @@ const ChatHistory = () => {
                                             <div className="card-header">
                                                 <div className="chatbot-info">
                                                     <h3 className="chatbot-name">{chatbot.name}</h3>
-                                                    <p className="chatbot-description">{chatbot.description}</p>
+                                                    <p className="chatbot-description">{chatbot.description || 'No description'}</p>
                                                 </div>
                                                 <div className="chatbot-meta">
-                                                    <span className="chatbot-type">{chatbot.type}</span>
-                                                    <span className="chatbot-model">{chatbot.ai_provider}: {chatbot.ai_model}</span>
+                                                    <span className="chatbot-type">{chatbot.type || 'general'}</span>
+                                                    <span className="chatbot-model">{chatbot.ai_provider || 'AI'}: {chatbot.ai_model || 'model'}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -362,8 +349,6 @@ const ChatHistory = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
   );
 };
 

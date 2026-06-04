@@ -31,6 +31,8 @@ class AiModel(db.Model):
     model_type = db.Column(db.String(20), default='chat')
     context_window = db.Column(db.Integer, nullable=True)
     max_tokens = db.Column(db.Integer, nullable=True)
+    temperature = db.Column(db.Float, nullable=True, default=0.7)
+    top_k = db.Column(db.Integer, nullable=True, default=10)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -57,6 +59,8 @@ class AiModel(db.Model):
             'model_type': self.model_type,
             'context_window': self.context_window,
             'max_tokens': self.max_tokens,
+            'temperature': self.temperature if self.temperature is not None else 0.7,
+            'top_k': self.top_k if self.top_k is not None else 10,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

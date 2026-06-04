@@ -5,9 +5,32 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: #ffffff;
+  color: #1a1a2e;
 }
 
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
+}
+
+html, body, #root {
+  background: #ffffff !important;
+  color: #1a1a2e !important;
+}
+
+/* Ensure all text is visible */
+p, h1, h2, h3, h4, h5, h6, span, label, button, input, select, textarea {
+  color: inherit;
+}
+
+/* Fix any divs that might have wrong background */
+div, section, main, article {
+  background-color: transparent;
+}
+
+/* Ensure cards and containers have white backgrounds */
+[class*="card"], [class*="container"], [class*="section"], [class*="panel"] {
+  background: #ffffff;
+  border-color: #b3b3c8;
 }

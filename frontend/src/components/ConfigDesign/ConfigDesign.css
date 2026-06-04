@@ -1,89 +1,28 @@
-.layout-container {
-  display: flex;
-  height: 100vh; /* Full screen height */
-  width: 100%;
-  color: #333333;
-}
-
 .page-title {
   font-size: 28px;
   font-weight: 700;
   margin-bottom: 8px;
-  color: #333333;
+  color: #000000;
 }
 
 .page-subtitle {
   font-size: 16px;
-  color: #666666;
+  color: #4a4a6a;
 }
 
 .form-section-title {
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1.5rem;
-  color: #333333;
+  color: #000000;
 }
 
 .form-group label {
   display: block;
   margin-bottom: 0.75rem;
   font-weight: 600;
-  color: #333333;
+  color: #000000;
   font-size: 0.95rem;
-}
-
-.form-group .helper-text {
-  font-size: 0.85rem;
-  color: #666666;
-  margin-top: 0.25rem;
-  display: block;
-}
-
-.form-control {
-  width: 100%;
-  padding: 0.875rem 1rem;
-  border: 2px solid var(--border, #e0e0e0);
-  border-radius: var(--radius, 8px);
-  background: var(--surface, #ffffff);
-  color: #333333;
-  transition: all 0.2s ease;
-  font-size: 0.95rem;
-}
-
-.form-control:hover {
-  border-color: var(--border-hover, #c0c0c0);
-}
-
-.form-control:focus {
-  border-color: var(--primary, #007bff);
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
-  color: var(--text, #333333);
-}
-
-.form-control::placeholder {
-  color: var(--text-muted, #666666);
-  opacity: 1;
-}
-
-.form-group {
-  margin-bottom: 2rem;
-  position: relative;
-}
-
-.form-group label {
-  display: block;
-  margin-bottom: 0.75rem;
-  font-weight: 600;
-  color: var(--text, #333333);
-  font-size: 0.95rem;
-}
-
-.form-group .helper-text {
-  font-size: 0.85rem;
-  color: var(--text-muted, #666666);
-  margin-top: 0.25rem;
-  display: block;
 }
 
 .form-actions {
@@ -92,16 +31,16 @@
   align-items: center;
   margin-top: 3rem;
   padding-top: 2rem;
-  border-top: 1px solid var(--border, #e0e0e0);
+  border-top: 1.5px solid #cccccc;
 }
 
 .btn {
   padding: 0.875rem 1.75rem;
-  border-radius: var(--radius, 8px);
+  border-radius: var(--radius);
   font-weight: 600;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   border: none;
   display: inline-flex;
   align-items: center;
@@ -111,26 +50,26 @@
 }
 
 .btn-primary {
-  background: var(--primary, #007bff);
+  background: #8B5CF6;
   color: white;
-  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.2);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 .btn-primary:hover {
-  background: var(--primary-dark, #0056b3);
+  background: #7C3AED;
   transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .btn-secondary {
-  background: var(--surface, #ffffff);
-  color: var(--text, #333333);
-  border: 2px solid var(--border, #e0e0e0);
+  background: #ffffff;
+  color: #000000;
+  border: 1.5px solid #b3b3c8;
 }
 
 .btn-secondary:hover {
-  background: var(--surface-dark, #f8f9fa);
-  border-color: var(--border-hover, #c0c0c0);
+  background: #f0f2f5;
+  border-color: #a8a8bc;
 }
 
 .btn:disabled {
@@ -151,8 +90,8 @@
 .spinner {
   width: 50px;
   height: 50px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
+  border: 4px solid #f0f2f5;
+  border-top: 4px solid #8B5CF6;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin: 0 auto 2rem;
@@ -171,14 +110,14 @@
 
 .error-state h3 {
   margin: 0 0 1rem 0;
-  color: #333333;
+  color: #000000;
   font-size: 1.8rem;
   font-weight: 600;
 }
 
 .error-state p {
   margin: 0 0 2rem 0;
-  color: #666666;
+  color: #4a4a6a;
   font-size: 1.1rem;
   line-height: 1.5;
 }
@@ -191,7 +130,7 @@
 }
 
 .loading-state p {
-  color: #666666;
+  color: #4a4a6a;
   font-size: 1.1rem;
   margin: 0;
 }
@@ -207,7 +146,7 @@
 .form-section {
   margin-bottom: 2.5rem;
   padding-bottom: 2rem;
-  border-bottom: 1px solid var(--border, #e0e0e0);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .form-section:last-child {
@@ -220,7 +159,7 @@
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1.5rem;
-  color: #333333;
+  color: var(--text-primary);
 }
 
 /* Field icons */
@@ -248,54 +187,54 @@
   width: 1.25rem;
   height: 1.25rem;
   border-radius: 50%;
-  background: var(--primary, #007bff);
-  border: 2px solid var(--surface, #ffffff);
+  background: var(--primary);
+  border: 2px solid var(--bg-card);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all var(--transition-fast);
   margin-top: -0.5rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 .form-range::-webkit-slider-thumb:hover {
   transform: scale(1.1);
-  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow);
 }
 
 .form-range::-webkit-slider-runnable-track {
   width: 100%;
   height: 0.25rem;
-  background: var(--border, #e0e0e0);
-  border-radius: var(--radius, 8px);
-  transition: background-color 0.2s;
+  background: var(--border-light);
+  border-radius: var(--radius);
+  transition: background-color var(--transition-fast);
 }
 
 .form-range:hover::-webkit-slider-runnable-track {
-  background: var(--border-hover, #c0c0c0);
+  background: var(--border);
 }
 
 .range-value {
   display: inline-block;
   padding: 0.25rem 0.75rem;
-  background: var(--surface, #ffffff);
-  border: 1px solid var(--border, #e0e0e0);
-  border-radius: var(--radius, 8px);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius);
   font-size: 0.875rem;
-  color: #333333;
+  color: var(--text-primary);
   margin-left: 0.5rem;
   min-width: 3.5rem;
   text-align: center;
 }
 
 .section-card {
-  background: var(--surface, #ffffff);
-  border: 1px solid var(--border, #e0e0e0);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 32px;
   margin-bottom: 32px;
   max-width: 800px;
   margin-left: auto;
   margin-right: auto;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow);
 }
 
 /* Responsive Design */
@@ -328,24 +267,24 @@
 }
 
 .theme-settings {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   padding: 1.5rem;
   border-radius: 12px;
-  border: 1px solid #e9ecef;
+  border: 1px solid var(--border-light);
 }
 
 .theme-preview {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   padding: 1.5rem;
   border-radius: 12px;
-  border: 1px solid #e9ecef;
+  border: 1px solid var(--border-light);
 }
 
 .theme-preview h4 {
   margin: 0 0 1rem 0;
   font-size: 1rem;
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .color-input-group {
@@ -357,7 +296,7 @@
 .color-picker {
   width: 60px;
   height: 45px;
-  border: 2px solid #e0e0e0;
+  border: 2px solid var(--border-light);
   border-radius: 8px;
   cursor: pointer;
   background: none;
@@ -390,9 +329,9 @@
 .chat-widget-preview {
   width: 320px;
   height: 420px;
-  background: white;
+  background: var(--bg-card);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -425,30 +364,30 @@
 .chat-messages-preview {
   flex: 1;
   padding: 1rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   overflow-y: auto;
 }
 
 .message-preview {
-  background: white;
+  background: var(--bg-card);
   padding: 0.75rem 1rem;
   border-radius: 18px;
   margin-bottom: 0.5rem;
   max-width: 80%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
   font-size: 0.9rem;
   line-height: 1.4;
 }
 
 .message-preview.assistant {
-  background: #e3f2fd;
+  background: var(--bg-hover);
   margin-right: auto;
 }
 
 .chat-input-preview {
   padding: 1rem;
-  background: white;
-  border-top: 1px solid #e9ecef;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border-light);
   display: flex;
   gap: 0.5rem;
 }
@@ -456,10 +395,10 @@
 .chat-input-preview input {
   flex: 1;
   padding: 0.75rem;
-  border: 1px solid #e0e0e0;
+  border: 1px solid var(--border-light);
   border-radius: 20px;
   font-size: 0.9rem;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
 }
 
 .chat-input-preview button {
@@ -502,11 +441,11 @@
 
 /* Top K Restriction Styles */
 .restriction-message {
-  color: #856404 !important;
-  background-color: #fff3cd;
+  color: var(--warning) !important;
+  background-color: var(--bg-secondary);
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
-  border: 1px solid #ffeaa7;
+  border: 1px solid var(--warning);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -529,4 +468,3 @@
 .form-range.disabled::-moz-range-thumb {
   cursor: not-allowed;
 }
-

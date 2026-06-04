@@ -308,7 +308,13 @@ class ChatbotService {
           label: m.display_name || m.model_name,
           description: `Configured model - ${m.provider}`,
           is_db_model: true,
-          db_id: m.id
+          db_id: m.id,
+          fullData: {
+            temperature: m.temperature ?? 0.7,
+            max_tokens: m.max_tokens ?? 2048,
+            top_k: m.top_k ?? 10,
+            context_window: m.context_window
+          }
         });
       }
 

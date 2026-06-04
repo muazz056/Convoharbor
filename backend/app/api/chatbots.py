@@ -1233,7 +1233,20 @@ def delete_chatbot(chatbot_id):
         except Exception as ds_error:
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete data sources: {ds_error}")
-        
+
+        # Delete document embeddings (vector store entries) for this chatbot
+        try:
+            current_app.logger.info(f"🔍 Attempting to delete document embeddings for chatbot {chatbot_id}")
+            result = db.session.execute(
+                db.text("DELETE FROM document_embeddings WHERE chatbot_id = :chatbot_id"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+            current_app.logger.info(f"🗑️ Deleted {result.rowcount} document embeddings for chatbot {chatbot_id}")
+        except Exception as emb_error:
+            db.session.rollback()
+            current_app.logger.warning(f"⚠️ Could not delete document embeddings (table may not exist): {emb_error}")
+
         # Delete the chatbot using raw SQL to avoid relationship issues
         try:
             current_app.logger.info(f"🔍 Attempting to delete chatbot {chatbot_id} directly")
@@ -1355,7 +1368,20 @@ def delete_chatbot_admin(chatbot_id):
         except Exception as ds_error:
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete data sources: {ds_error}")
-        
+
+        # Delete document embeddings (vector store entries) for this chatbot
+        try:
+            current_app.logger.info(f"🔍 Attempting to delete document embeddings for chatbot {chatbot_id}")
+            result = db.session.execute(
+                db.text("DELETE FROM document_embeddings WHERE chatbot_id = :chatbot_id"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+            current_app.logger.info(f"🗑️ Deleted {result.rowcount} document embeddings for chatbot {chatbot_id}")
+        except Exception as emb_error:
+            db.session.rollback()
+            current_app.logger.warning(f"⚠️ Could not delete document embeddings (table may not exist): {emb_error}")
+
         # Delete the chatbot using raw SQL to avoid relationship issues
         try:
             current_app.logger.info(f"🔍 Attempting to delete chatbot {chatbot_id} directly")

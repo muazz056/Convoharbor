@@ -1,6 +1,4 @@
-import InnerNavbar from '../navbar/InnerNavbar'
 import "./Mychatbot.css";
-import Sidebar from '../Sidebar/Sidebar';
 import SimpleLoader from '../common/SimpleLoader';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
@@ -169,11 +167,6 @@ import { useAuth } from '../../contexts/AuthContext';
 
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          
-          <div className="main-content">
-            <InnerNavbar />
             <div className="page" id="chatbots" >
               <div className="page-header">
                 <h1 className="page-title">My Chatbots</h1>
@@ -263,29 +256,26 @@ import { useAuth } from '../../contexts/AuthContext';
                         </div>
 
                         <div className="card-actions">
-                          {/* REMOVE: Configure button logic */}
-                          {/* {hasPermission('manage_chatbots') && (
+                          {hasPermission('manage_chatbots') && (
                             <Link 
                               to={`/configuration-design?id=${chatbot.id}`}
                               className="action-button primary"
                             >
-                              Configure
-                            </Link>
-                          )} */}
-                          {canEmbed && (
-                            <Link 
-                              to={`/chatbot/${chatbot.id}/test`}
-                              className="action-button secondary"
-                            >
-                              🧪 Test Chat
+                              ⚙️ Configure
                             </Link>
                           )}
+                          <Link 
+                            to={`/chatbot/${chatbot.id}/test`}
+                            className="action-button secondary"
+                          >
+                            🧪 Test Chat
+                          </Link>
                           {hasPermission('manage_chatbots') && (
                             <button 
                               onClick={() => handleDelete(chatbot.id)}
                               className="action-button danger"
                             >
-                              Delete
+                              🗑️ Delete
                             </button>
                           )}
                           {hasPermission('manage_chatbots') && canEmbed && (
@@ -293,7 +283,7 @@ import { useAuth } from '../../contexts/AuthContext';
                               onClick={() => loadEmbedScript(chatbot.id)}
                               className="action-button success"
                             >
-                              Embed
+                              📋 Embed
                             </button>
                           )}
                         </div>
@@ -303,8 +293,6 @@ import { useAuth } from '../../contexts/AuthContext';
                 </div>
               )}
             </div>
-          </div>
-        </div>
         <EmbedScriptModal 
           isOpen={isEmbedOpen} 
           onClose={() => setIsEmbedOpen(false)} 

@@ -1,10 +1,9 @@
 import "./Login.css";
-import robot from "../images/robot.png";
-import logo from "../images/logo.png";
 import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { validateEmail } from "../../utils/validation";
+import Navbar from "../navbar/navbar";
 
 const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
@@ -40,7 +39,6 @@ const Login = () => {
 
     setFieldErrors(newFieldErrors);
 
-    // Check if any field has an error
     const hasErrors = Object.values(newFieldErrors).some(error => error !== '');
     if (hasErrors) {
       setError('Please correct the errors in the form');
@@ -51,7 +49,6 @@ const Login = () => {
   };
 
   const handleGoogleLogin = () => {
-    // Construct the backend URL using environment variables for robustness
     const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
     window.location.href = `${apiUrl}/auth/oauth/google/authorize`;
   };
@@ -79,141 +76,111 @@ const Login = () => {
       setLoading(false);
     }
   };
+
   return (
-    <div className="login-wrapper">
-      <div className="left-pane">
-        <a href="/home">
-          <img
-          src={logo}
-          alt="LOGO"
-          style={{
-            position: "absolute",
-            top: "1rem",
-            left: "1rem",
-            height: "40px", // adjust size as needed
-            zIndex: 2,
-          }}
-        />
-        </a>
-
-        <img
-          src={robot}
-          alt="Robot"
-          style={{
-            position: "absolute",
-            left: "32%",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
-            maxWidth: "100%",
-            maxHeight: "100%",
-            zIndex: 1,
-            pointerEvents: "none",
-          }}
-        />
-      </div>
-
-      <div className="right-pane">
-        <form className="form-box" noValidate onSubmit={handleSubmit}>
-          <h2 className="fw-bold mb-3">Login</h2>
-          <p className="mb-4">Login to your account</p>
+    <div className="auth-page">
+      <Navbar />
+      <div className="auth-container">
+        <div className="auth-card" data-aos="fade-up">
+          <div className="auth-header">
+            <h1 className="auth-title">Welcome Back</h1>
+            <p className="auth-subtitle">Sign in to your account</p>
+          </div>
 
           {error && (
-            <div className="alert alert-danger mb-3" role="alert">
+            <div className="auth-alert auth-alert-error">
+              <i className="fas fa-exclamation-circle me-2"></i>
               {error}
             </div>
           )}
 
-          <div className="mb-3">
-            <input
-              type="email"
-              className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
-              id="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              placeholder="name@example.com"
-              required
-            />
-            {fieldErrors.email && (
-              <div className="invalid-feedback">{fieldErrors.email}</div>
-            )}
-          </div>
-
-          <div className="mb-3 position-relative">
-            <input
-              type={showPassword ? "text" : "password"}
-              className={`form-control ${fieldErrors.password ? 'is-invalid' : ''}`}
-              id="password"
-              name="password"
-              value={formData.password}
-              onChange={handleChange}
-              placeholder="password"
-              required
-            />
-            <span
-              onClick={() => setShowPassword(!showPassword)}
-              className="position-absolute top-50 end-0 translate-middle-y me-3"
-              style={{ cursor: "pointer", zIndex: 5 }}
-            >
-              <i
-                className={`fa ${
-                  showPassword ? "fa-eye-slash" : "fa-eye"
-                } text-secondary`}
-              ></i>
-            </span>
-            {fieldErrors.password && (
-              <div className="invalid-feedback">{fieldErrors.password}</div>
-            )}
-          </div>
-
-          <div className="d-flex justify-content-between align-items-center mb-4">
-            <div className="form-check">
-              <input
-                className="form-check-input"
-                type="checkbox"
-                name="rememberMe"
-                checked={formData.rememberMe}
-                onChange={handleChange}
-                id="rememberMe"
-              />
-              <label className="form-check-label" htmlFor="rememberMe">
-                Remember me
-              </label>
+          <form onSubmit={handleSubmit}>
+            <div className="auth-field">
+              <label htmlFor="email">Email Address</label>
+              <div className="auth-input-wrapper">
+                <i className="fas fa-envelope"></i>
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="name@example.com"
+                  className={fieldErrors.email ? 'auth-input error' : 'auth-input'}
+                  required
+                />
+              </div>
+              {fieldErrors.email && <span className="auth-error">{fieldErrors.email}</span>}
             </div>
-            <Link to="/forget_password" className="text-white">
-              Forget Password?
-            </Link>
+
+            <div className="auth-field">
+              <label htmlFor="password">Password</label>
+              <div className="auth-input-wrapper">
+                <i className="fas fa-lock"></i>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  id="password"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="Enter your password"
+                  className={fieldErrors.password ? 'auth-input error' : 'auth-input'}
+                  required
+                />
+                <button
+                  type="button"
+                  className="auth-eye-btn"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  <i className={`fa ${showPassword ? "fa-eye-slash" : "fa-eye"}`}></i>
+                </button>
+              </div>
+              {fieldErrors.password && <span className="auth-error">{fieldErrors.password}</span>}
+            </div>
+
+            <div className="auth-options">
+              <label className="auth-checkbox">
+                <input
+                  type="checkbox"
+                  name="rememberMe"
+                  checked={formData.rememberMe}
+                  onChange={handleChange}
+                />
+                <span>Remember me</span>
+              </label>
+              <Link to="/forget_password" className="auth-forgot">Forgot password?</Link>
+            </div>
+
+            <button 
+              type="submit" 
+              className="auth-btn-primary"
+              disabled={loading}
+            >
+              {loading ? (
+                <><i className="fas fa-spinner fa-spin me-2"></i>Signing in...</>
+              ) : (
+                <><i className="fas fa-sign-in-alt me-2"></i>Sign In</>
+              )}
+            </button>
+          </form>
+
+          <div className="auth-divider">
+            <span>or continue with</span>
           </div>
 
           <button 
-            className="btn w-100 mb-3" 
-            type="submit" 
-            id="login_button"
-            disabled={loading}
+            type="button" 
+            className="auth-btn-google"
+            onClick={handleGoogleLogin}
           >
-            {loading ? 'Logging in...' : 'Login'}
+            <i className="fab fa-google me-2"></i>Google
           </button>
 
-          <p className="text-left">
-            Don't have an account?
-            <Link to="/signup" className="text-white">
-              {" "}
-              Create
-            </Link>
+          <p className="auth-footer-text">
+            Don't have an account?{' '}
+            <Link to="/signup" className="auth-link">Create one</Link>
           </p>
-
-          <div className="text-center my-2">OR</div>
-
-          <div className="social-login">
-            <button 
-              type="button" 
-              className="btn btn-outline-light w-100"
-              onClick={handleGoogleLogin}
-            >
-              <i className="fab fa-google me-2"></i>Sign In with Google
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
     </div>
   );

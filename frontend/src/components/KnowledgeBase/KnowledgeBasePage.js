@@ -1,26 +1,27 @@
 import React, { useState, useEffect } from 'react';
 import './KnowledgeBasePage.css';
 import { dataSourceService } from '../../services/datasource.service';
-import { chatbotService } from '../../services/chatbot.service'; // Import chatbot service
-import Sidebar from '../Sidebar/Sidebar'; // Import Sidebar
-import InnerNavbar from '../navbar/InnerNavbar'; // Import InnerNavbar
+import { chatbotService } from '../../services/chatbot.service';
+import { useAuth } from '../../contexts/AuthContext';
+
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 
 const KnowledgeBasePage = () => {
+  const { hasPermission } = useAuth();
   const [chatbots, setChatbots] = useState([]);
   const [dataSources, setDataSources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeChatbotId, setActiveChatbotId] = useState(null); // To control accordion
+  const [activeChatbotId, setActiveChatbotId] = useState(null);
   
-  // State for the chunk viewer (repurposed from modal)
   const [selectedDataSource, setSelectedDataSource] = useState(null);
   const [chunks, setChunks] = useState([]);
   const [chunksLoading, setChunksLoading] = useState(false);
   const [chunksError, setChunksError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedChunks, setExpandedChunks] = useState(new Set());
+  const [deleting, setDeleting] = useState(null);
 
   useEffect(() => {
     AOS.init({
@@ -51,7 +52,6 @@ const KnowledgeBasePage = () => {
   
   const handleDataSourceClick = async (dataSource) => {
     if (selectedDataSource && selectedDataSource.id === dataSource.id) {
-        // If the same source is clicked again, close the viewer
         setSelectedDataSource(null);
         setChunks([]);
         return;
@@ -69,6 +69,31 @@ const KnowledgeBasePage = () => {
       console.error('Error loading chunks:', err);
     } finally {
       setChunksLoading(false);
+    }
+  };
+
+  const handleDeleteDataSource = async (dataSource) => {
+    const confirmMsg = `Delete "${dataSource.source_name}"?\n\nThis will remove all ${dataSource.processed_chunks || 'processed'} chunks and cannot be undone.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      setDeleting(dataSource.id);
+      await dataSourceService.deleteDataSource(dataSource.id);
+      
+      // Clear selection if deleted source was selected
+      if (selectedDataSource?.id === dataSource.id) {
+        setSelectedDataSource(null);
+        setChunks([]);
+      }
+      
+      // Refresh data
+      await fetchData();
+      alert('✅ Data source deleted successfully!');
+    } catch (err) {
+      setError(`Failed to delete: ${err.message}`);
+      console.error('Error deleting data source:', err);
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -124,10 +149,6 @@ const KnowledgeBasePage = () => {
   // Main render
   return (
     <>
-      <div className="layout-container">
-        <Sidebar />
-        <div className="main-content">
-          <InnerNavbar />
           <div className="page" id="knowledge-base-overview" data-aos="fade-up">
             <div className="page-header">
               <h1 className="page-title">Knowledge Base Overview</h1>
@@ -190,10 +211,27 @@ const KnowledgeBasePage = () => {
                                 <div 
                                   key={source.id} 
                                   className={`data-source-item ${selectedDataSource?.id === source.id ? 'active' : ''}`}
-                                  onClick={() => handleDataSourceClick(source)}
                                 >
-                                  <span className="source-icon">{getSourceIcon(source.source_type)}</span>
-                                  <span className="source-name">{source.source_name}</span>
+                                  <div 
+                                    className="source-clickable"
+                                    onClick={() => handleDataSourceClick(source)}
+                                  >
+                                    <span className="source-icon">{getSourceIcon(source.source_type)}</span>
+                                    <span className="source-name">{source.source_name}</span>
+                                  </div>
+                                  {hasPermission('manage_chatbots') && (
+                                    <button
+                                      className="delete-source-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteDataSource(source);
+                                      }}
+                                      disabled={deleting === source.id}
+                                      title="Delete this data source"
+                                    >
+                                      {deleting === source.id ? '⏳' : '🗑️'}
+                                    </button>
+                                  )}
                                 </div>
                               ))
                             ) : (
@@ -301,8 +339,6 @@ const KnowledgeBasePage = () => {
               </div>
             )}
           </div>
-        </div>
-      </div>
     </>
   );
 };

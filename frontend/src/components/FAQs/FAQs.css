@@ -2,11 +2,11 @@
   text-align: center;
   font-size: 34px;
   font-weight: 700;
-  color: #282828;
+  color: var(--text-primary);
 }
 
 .section-title .gradient {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -15,19 +15,48 @@
   font-family: 'Montserrat', sans-serif;
 }
 
-.plain-text{
-   text-align: center;
+.plain-text {
+  text-align: center;
   font-size: 50px;
   font-weight: 700;
-  color: #282828;   
+  color: var(--text-primary);
 }
 
-.accordion-heading{
-  font-family: 'Poppins', sans-serif;
-  font-size: 20px;
-  font-weight: 500;
+.accordion {
+  max-width: 720px;
+  margin: 0 auto;
 }
-.accordion-body{
-  font-family: 'Poppins', sans-serif;
+
+.accordion-button {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
+  font-weight: 600;
+  color: #000000;
+  padding: 16px 20px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 8px;
+  box-shadow: none;
+}
+
+.accordion-button:not(.collapsed) {
+  background: #f9fafb;
+  color: #000000;
+  border-color: #d1d5db;
+  box-shadow: none;
+}
+
+.accordion-button::after {
+  width: 20px;
+  height: 20px;
+  background-size: 20px;
+}
+
+.accordion-body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  color: #555555;
+  padding: 8px 20px 20px;
 }

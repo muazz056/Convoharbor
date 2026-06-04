@@ -178,11 +178,26 @@ class VectorService:
                 current_app.logger.warning("Failed to generate query embedding")
                 return []
 
+            # First try with chatbot_id filter
             filter_dict = {"provider": embed_provider}
             if chatbot_id is not None:
                 filter_dict["chatbot_id"] = chatbot_id
 
             results = self.query(query_embedding, top_k=limit, filter_dict=filter_dict)
+
+            # Fallback: if no results with chatbot_id, try without it (for legacy embeddings)
+            if not results and chatbot_id is not None:
+                current_app.logger.warning(
+                    f"Vector search found 0 results for chatbot_id={chatbot_id}, "
+                    f"trying fallback without chatbot_id filter"
+                )
+                filter_dict_fallback = {"provider": embed_provider}
+                results = self.query(query_embedding, top_k=limit, filter_dict=filter_dict_fallback)
+                if results:
+                    current_app.logger.info(
+                        f"Fallback search found {len(results)} results (chatbot_id={chatbot_id} "
+                        f"embeddings may be missing chatbot_id)"
+                    )
 
             if redis_service:
                 redis_service.set_cache(cache_key, results, ttl=60)

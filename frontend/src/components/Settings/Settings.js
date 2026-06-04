@@ -1,10 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import './Settings.css';
-import InnerNavbar from '../navbar/InnerNavbar'
-import Sidebar from '../Sidebar/Sidebar';
+
 import { useAuth } from '../../contexts/AuthContext';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
+
+const ToggleSetting = ({ label, description, active, onToggle }) => (
+  <div className="settings-item">
+    <div className="settings-info">
+      <div className="settings-label">{label}</div>
+      <div className="settings-description">{description}</div>
+    </div>
+    <div
+      className={`toggle-switch ${active ? 'active' : ''}`}
+      onClick={onToggle}
+    />
+  </div>
+);
+
+const ButtonSetting = ({ label, description, buttonText, type = 'btn-secondary' }) => (
+  <div className="settings-item">
+    <div className="settings-info">
+      <div className="settings-label">{label}</div>
+      <div className="settings-description">{description}</div>
+    </div>
+    <button className={`btn ${type}`}>{buttonText}</button>
+  </div>
+);
 
 const SettingsPage = () => {
   const { user, updateUser } = useAuth();
@@ -354,11 +376,6 @@ const SettingsPage = () => {
 
   return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          
-          <div className="main-content">
-            <InnerNavbar />
     <div className="page" id="settings">
       <div className="page-header">
               <h1 className="page-title">⚙️ Account Settings</h1>
@@ -803,34 +820,9 @@ const SettingsPage = () => {
                 </div>
               </div>
             )}
-          </div>
-        </div>
-        </div>
+      </div>
       </>
   );
 };
-
-const ToggleSetting = ({ label, description, active, onToggle }) => (
-  <div className="settings-item">
-    <div className="settings-info">
-      <div className="settings-label">{label}</div>
-      <div className="settings-description">{description}</div>
-    </div>
-    <div
-      className={`toggle-switch ${active ? 'active' : ''}`}
-      onClick={onToggle}
-    />
-  </div>
-);
-
-const ButtonSetting = ({ label, description, buttonText, type = 'btn-secondary' }) => (
-  <div className="settings-item">
-    <div className="settings-info">
-      <div className="settings-label">{label}</div>
-      <div className="settings-description">{description}</div>
-    </div>
-    <button className={`btn ${type}`}>{buttonText}</button>
-  </div>
-);
 
 export default SettingsPage;

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import './HowToUse.css';
-import InnerNavbar from '../navbar/InnerNavbar';
-import Sidebar from '../Sidebar/Sidebar';
+
 
 const HowToUse = () => {
   const [activeStep, setActiveStep] = useState(1);
@@ -189,15 +188,9 @@ const HowToUse = () => {
 
   return (
     <>
-      <div className="layout-container">
-        <Sidebar />
-        
-        <div className="main-content">
-          <InnerNavbar />
-          
           <div className="page" id="how-to-use">
             <div className="page-header">
-              <h1 className="page-title">📖 How to Use ConvoPilot</h1>
+              <h1 className="page-title">📖 How to Use {process.env.REACT_APP_APP_NAME || 'ConvoPilot'}</h1>
               <p className="page-subtitle">
                 Complete guide from creating your chatbot to embedding it on your website
               </p>
@@ -329,8 +322,6 @@ const HowToUse = () => {
               </div>
             </div>
           </div>
-        </div>
-      </div>
     </>
   );
 };

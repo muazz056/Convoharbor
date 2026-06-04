@@ -142,46 +142,26 @@
 
 
 
-[data-theme="dark"] .integeration-page-title {
+.integeration-page-title {
   color: var(--text-primary);
 }
 
-[data-theme="dark"] .page-subtitle {
+.page-subtitle {
   color: var(--text-muted);
 }
 
-[data-theme="dark"] .integration-card {
+.integration-card {
   background-color: var(--surface);
   border-color: var(--surface-hover);
   color: var(--text-primary);
 }
 
-[data-theme="dark"] .integration-description {
+.integration-description {
   color: var(--text-secondary);
 }
 
-[data-theme="dark"] .primary-button {
+.primary-button {
   color: var(--text-primary);
 }
 
-[data-theme="light"] .integeration-page-title {
-  color: var(--primary);
-}
 
-[data-theme="light"] .page-subtitle {
-  color: #6B7280;
-}
-
-[data-theme="light"] .integration-card {
-  background-color: #ffffff;
-  border-color: #e5e7eb;
-  color: #1F2937;
-}
-
-[data-theme="light"] .integration-description {
-  color: #4B5563;
-}
-
-[data-theme="light"] .primary-button {
-  color: #1F2937;
-}

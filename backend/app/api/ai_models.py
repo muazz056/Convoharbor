@@ -69,6 +69,8 @@ def create_model():
         model_type=data.get('model_type', 'chat'),
         context_window=data.get('context_window'),
         max_tokens=data.get('max_tokens'),
+        temperature=data.get('temperature', 0.7),
+        top_k=data.get('top_k', 10),
         created_by=g.user_id
     )
     api_key = data.get('api_key')
@@ -116,6 +118,10 @@ def update_model(model_id):
         model.context_window = data['context_window']
     if 'max_tokens' in data:
         model.max_tokens = data['max_tokens']
+    if 'temperature' in data:
+        model.temperature = data['temperature']
+    if 'top_k' in data:
+        model.top_k = data['top_k']
     if 'api_key' in data:
         model.set_api_key(data['api_key'])
 

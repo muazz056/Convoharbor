@@ -1,14 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import 'bootstrap/dist/css/bootstrap.min.css';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
-
-// Set default theme to light if not already set
-if (!localStorage.getItem('theme')) {
-  localStorage.setItem('theme', 'light');
-  document.documentElement.setAttribute('data-theme', 'light');
-}
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(

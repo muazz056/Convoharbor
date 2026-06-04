@@ -1,134 +1,251 @@
-body, html {
-  height: 100%;
-  margin: 0;
-  font-family: 'Segoe UI', sans-serif;
+/* ========================================
+   AUTH PAGES - Login & Signup
+   ======================================== */
+
+.auth-page {
+  min-height: 100vh;
+  background: #f5f5f5;
 }
 
-.login-wrapper {
+.auth-container {
   display: flex;
-  height: 100vh;
-}
-
-.left-pane {
-  background-color: #fff;
-  flex: 1;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  width: 35%;
-}
-
-.left-pane img {
-  max-width: 80%;
-  height: auto;
-}
-
-.right-pane {
-  flex: 2;
-  width: 65%;
-  background: linear-gradient(180deg, #61A6A7, #1D4880);
-  color: #fff;
-  display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 3rem 2rem;
-  font-family: 'poppins', sans-serif;
-  border-radius: 20px 0px 0px 20px;
-  filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.4));
+  min-height: calc(100vh - 70px);
+  padding: 40px 24px;
 }
 
-.form-box {
+.auth-card {
   width: 100%;
-  max-width: 400px;
+  max-width: 440px;
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e5e7eb;
 }
 
-.form-outline input {
-  background-color: transparent;
-  color: white;
+.auth-header {
+  text-align: center;
+  margin-bottom: 32px;
 }
 
-.form-outline label {
-  color: #ccc;
+.auth-title {
+  font-size: 28px;
+  font-weight: 700;
+  color: #000000;
+  margin: 0 0 8px;
 }
 
-.form-check-label, .form-text {
-  color: #ccc;
+.auth-subtitle {
+  font-size: 15px;
+  color: #666666;
+  margin: 0;
 }
 
-.social-login .btn {
-  width: 48%;
+.auth-alert {
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 14px;
 }
 
-.social-login .btn.w-100 {
-  width: 100% !important;
-  max-width: 250px;
-  margin: 0 auto;
+.auth-alert-error {
+  background: #fef2f2;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+.auth-field {
+  margin-bottom: 20px;
+}
+
+.auth-field label {
   display: block;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333333;
+  margin-bottom: 8px;
 }
 
-#login-text {
-  font-family: 'Montserrat', sans-serif;
+.auth-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
-#login_button {
-  background-color: #061942;
-  color: white;
+.auth-input-wrapper i:first-child {
+  position: absolute;
+  left: 14px;
+  color: #999999;
+  font-size: 14px;
+  pointer-events: none;
 }
 
-#login_button:hover {
-  background-color: #0c2c72;
+.auth-input {
+  width: 100%;
+  padding: 12px 14px 12px 42px;
+  font-size: 15px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #000000;
+  transition: all 0.2s ease;
+  outline: none;
 }
 
-img {
-  max-width: 100%;
-  object-fit: contain;
+.auth-input:focus {
+  border-color: #8B5CF6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
 }
 
-/* ========================= */
-/*     MEDIA QUERIES        */
-/* ========================= */
-@media (max-width: 992px) {
-  .login-wrapper {
-    flex-direction: column;
-  }
+.auth-input.error {
+  border-color: #dc2626;
+}
 
-  .left-pane, .right-pane {
-    width: 100%;
-    height: 50vh;
-    border-radius: 0;
-  }
+.auth-eye-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #999999;
+  cursor: pointer;
+  padding: 4px;
+}
 
-  .right-pane {
-    padding: 7rem 1rem;
-  }
+.auth-eye-btn:hover {
+  color: #666666;
+}
 
-  .form-box {
-    max-width: 100%;
-    padding: 0 1rem;
-  }
+.auth-error {
+  display: block;
+  font-size: 13px;
+  color: #dc2626;
+  margin-top: 6px;
+}
 
-  .social-login {
-    flex-direction: column;
-    gap: 1rem;
-  }
+.auth-options {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
 
-  .social-login .btn {
-    width: 100%;
-  }
+.auth-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #555555;
+  cursor: pointer;
+}
 
-  .left-pane img[alt="Robot"] {
-    left: 50% !important;
-    top: 20% !important;
-    transform: translate(-50%, -50%) scale(0.6) !important;
-    max-width: 60% !important;
-    height: auto !important;
-  }
+.auth-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: #8B5CF6;
+}
 
-  .left-pane img[alt="LOGO"] {
-    height: 30px !important;
-    top: 1rem !important;
-    left: 1rem !important;
+.auth-forgot {
+  font-size: 14px;
+  color: #8B5CF6;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-forgot:hover {
+  text-decoration: underline;
+}
+
+.auth-btn-primary {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, #8B5CF6, #7C3AED);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.auth-btn-primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
+
+.auth-btn-primary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  margin: 24px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e5e7eb;
+}
+
+.auth-divider span {
+  padding: 0 16px;
+  font-size: 13px;
+  color: #999999;
+}
+
+.auth-btn-google {
+  width: 100%;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #333333;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-btn-google:hover {
+  background: #f9fafb;
+  border-color: #999999;
+}
+
+.auth-footer-text {
+  text-align: center;
+  font-size: 14px;
+  color: #666666;
+  margin-top: 24px;
+}
+
+.auth-link {
+  color: #8B5CF6;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
+/* Responsive */
+@media (max-width: 576px) {
+  .auth-card {
+    padding: 28px 20px;
+  }
+  
+  .auth-title {
+    font-size: 24px;
   }
 }

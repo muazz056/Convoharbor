@@ -123,7 +123,7 @@ const TenantManagement = () => {
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                                     >
                                         <option value="managed">Managed</option>
-                                        <option value="convopilot">ConvoPilot</option>
+                                        <option value={process.env.REACT_APP_APP_NAME?.toLowerCase() || 'convopilot'}>{process.env.REACT_APP_APP_NAME || 'ConvoPilot'}</option>
                                     </select>
                                 </div>
                                 

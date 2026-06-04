@@ -1,53 +1,24 @@
-.layout-container {
-  display: flex;
-  height: 100vh; /* Full screen height */
-  width: 100%;
-}
-
-.sidebar {
-  flex-shrink: 0;
-  overflow-y: auto;
-}
-
-.main-content {
-  flex-grow: 1;
-  color: white;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
 .analytics-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
     gap: 24px;
 }
 
-
-/* ADDED */
-
-
-/* Default (Light Theme) */
-.main-content {
-  background-color: #f8fafc; /* Light background */
-  color: #8B5CF6;
-}
-
 .page-header .page-title {
-  color: #8B5CF6;
+  color: #000000;
 }
 
 .page-subtitle,
 .chart-subtitle {
-  color: #475569;
+  color: var(--text-tertiary);
 }
 
 .anly-chart-container {
-  background-color: #ffffff;
-  border: 1px solid #e2e8f0;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 20px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Analytics Controls */
@@ -58,7 +29,7 @@
 .time-selector {
   display: flex;
   gap: 8px;
-  background: #f1f5f9;
+  background: var(--bg-secondary);
   padding: 4px;
   border-radius: 8px;
   width: fit-content;
@@ -72,17 +43,17 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  color: #64748b;
-  transition: all 0.2s ease;
+  color: var(--text-tertiary);
+  transition: all var(--transition-fast);
 }
 
 .time-btn:hover {
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--border-light);
+  color: var(--text-tertiary);
 }
 
 .time-btn.active {
-  background: #8b5cf6;
+  background: var(--primary);
   color: white;
   box-shadow: 0 2px 4px rgba(139, 92, 246, 0.2);
 }
@@ -94,14 +65,14 @@
   align-items: center;
   justify-content: center;
   padding: 60px 20px;
-  color: #64748b;
+  color: var(--text-tertiary);
 }
 
 .loading-spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid #f1f5f9;
-  border-top: 3px solid #8b5cf6;
+  border: 3px solid var(--bg-secondary);
+  border-top: 3px solid var(--primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 16px;
@@ -115,15 +86,15 @@
 .analytics-error {
   text-align: center;
   padding: 40px 20px;
-  color: #dc2626;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  color: var(--danger);
+  background: var(--bg-secondary);
+  border: 1px solid var(--danger);
   border-radius: 8px;
   margin: 20px 0;
 }
 
 .analytics-error button {
-  background: #dc2626;
+  background: var(--danger);
   color: white;
   border: none;
   padding: 8px 16px;
@@ -133,7 +104,7 @@
 }
 
 .analytics-error button:hover {
-  background: #b91c1c;
+  background: var(--primary-dark);
 }
 
 /* Analytics Summary */
@@ -143,7 +114,7 @@
 }
 
 .analytics-summary h2 {
-  color: #8b5cf6;
+  color: var(--primary);
   font-size: 24px;
   margin-bottom: 20px;
 }
@@ -155,15 +126,15 @@
 }
 
 .summary-card {
-  background: white;
-  border: 1px solid #e2e8f0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 24px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
 }
 
 .summary-card h3 {
-  color: #64748b;
+  color: var(--text-tertiary);
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
@@ -172,51 +143,30 @@
 }
 
 .summary-card .metric-value {
-  color: #1e293b;
+  color: var(--text-primary);
   font-size: 32px;
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .summary-card .metric-detail {
-  color: #64748b;
+  color: var(--text-tertiary);
   font-size: 14px;
 }
 
 .chart-title {
-  color: #0f172a;
+  color: var(--text-primary);
 }
 
-/* Dark Theme */
-[data-theme="dark"] .main-content {
-  background-color: #0f172a; /* Dark background */
-  color: #ffffff;
+@media (max-width: 900px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-[data-theme="dark"] .page-header .page-title {
-  color: #ffffff;
-}
-
-[data-theme="dark"] .page-subtitle,
-[data-theme="dark"] .chart-subtitle {
-  color: #cbd5e1;
-}
-
-[data-theme="dark"] .anly-chart-container {
-  background-color: #1e293b;
-  border: 1px solid #334155;
-  box-shadow: 0 1px 5px rgba(255, 255, 255, 0.05);
-}
-
-[data-theme="dark"] .chart-title {
-  color: #ffffff;
-}
-
-.main-content,
-.chart-container,
-.page-title,
-.chart-title,
-.page-subtitle,
-.chart-subtitle {
-  transition: background-color 0.3s ease, color 0.3s ease;
+@media (max-width: 640px) {
+  .analytics-filters {
+    flex-direction: column;
+    gap: 12px;
+  }
 }

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './AiModels.css';
-import Navbar from '../navbar/navbar';
-import Sidebar from '../Sidebar/Sidebar';
+
 import SimpleLoader from '../common/SimpleLoader';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -170,7 +169,7 @@ import { useAuth } from '../../contexts/AuthContext';
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          model: selectedModel,
+          model_id: parseInt(selectedModel, 10),
           prompt: testPrompt,
           temperature: 0.7,
           max_tokens: 1000
@@ -230,7 +229,7 @@ import { useAuth } from '../../contexts/AuthContext';
               'Authorization': `Bearer ${token}`
             },
             body: JSON.stringify({
-              model: modelId,
+              model_id: parseInt(modelId, 10),
               prompt: comparisonPrompt,
               temperature: 0.7,
               max_tokens: 1000
@@ -301,25 +300,11 @@ import { useAuth } from '../../contexts/AuthContext';
   };
 
   if (loading) {
-    return (
-      <div className="ai-models-page">
-        <Navbar />
-        <div className="ai-models-container">
-          <Sidebar />
-          <div className="ai-models-content">
-            <SimpleLoader message="Loading AI models..." />
-          </div>
-        </div>
-      </div>
-    );
+    return <SimpleLoader message="Loading AI models..." />;
   }
 
     return (
-    <div className="ai-models-page">
-      <Navbar />
-      <div className="ai-models-container">
-          <Sidebar />
-        <div className="ai-models-content">
+        <div className="ai-models-content" style={{ border: 'none', padding: 0, background: 'transparent' }}>
           <div className="ai-models-header">
             <h1>🧠 AI Models</h1>
             <p className="header-subtitle">
@@ -659,8 +644,6 @@ import { useAuth } from '../../contexts/AuthContext';
               </div>
             </div>
           )}
-        </div>
-      </div>
         </div>
     );
   };

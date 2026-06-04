@@ -1,6 +1,4 @@
-import InnerNavbar from '../navbar/InnerNavbar'
 import "./Analytics.css";
-import Sidebar from '../Sidebar/Sidebar';
 import SimpleLoader from '../common/SimpleLoader';
 import React, { useEffect, useRef, useState } from 'react';
 import Chart from 'chart.js/auto';
@@ -219,10 +217,6 @@ const Analytics = () => {
 
   return (
     <>
-    <div className="layout-container">
-      <Sidebar />
-      <div className="main-content">
-        <InnerNavbar />
         <div className="page" id="analytics" data-aos="fade-up" data-aos-delay="200">
           <div className="page-header">
               <h1 className="page-title">Analytics</h1>
@@ -353,8 +347,6 @@ const Analytics = () => {
             </div>
           )}
           </div>
-      </div>
-    </div>
     </>
   );
 };

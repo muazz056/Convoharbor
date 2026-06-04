@@ -80,7 +80,7 @@ const Integeration = () => {
         <div className="page" id="integrations" data-aos="fade-up" data-aos-delay="200">
           <div className="page-header">
             <h1 className="integeration-page-title">Integrations</h1>
-            <p className="page-subtitle">Connect ConvoPilot to your favorite tools</p>
+            <p className="page-subtitle">Connect {process.env.REACT_APP_APP_NAME || 'ConvoPilot'} to your favorite tools</p>
           </div>
 
           <div className="integration-grid">

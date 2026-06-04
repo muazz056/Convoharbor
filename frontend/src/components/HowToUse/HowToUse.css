@@ -1,10 +1,11 @@
 /* How to Use Page Styles */
-.how-to-use-page {
+.how-to-use-page,
+#how-to-use {
   padding: 2rem;
-  max-width: 1400px;
-  margin: 0 auto;
-  background: #f8f9fa;
+  background: var(--bg-secondary);
   min-height: calc(100vh - var(--navbar-height));
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .page-header {
@@ -16,9 +17,9 @@
 .page-title {
   font-size: 2.5rem;
   font-weight: 700;
-  color: #1a202c;
+  color: var(--text-primary);
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -26,7 +27,7 @@
 
 .page-subtitle {
   font-size: 1.2rem;
-  color: #718096;
+  color: var(--text-tertiary);
   max-width: 600px;
   margin: 0 auto;
   line-height: 1.6;
@@ -42,22 +43,24 @@
 
 /* Steps Navigation */
 .steps-navigation {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 1.5rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
   height: fit-content;
   position: sticky;
   top: 2rem;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .steps-navigation h3 {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--text-primary);
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 2px solid #e2e8f0;
+  border-bottom: 2px solid var(--border-light);
 }
 
 .steps-list {
@@ -81,15 +84,15 @@
 }
 
 .step-nav-item:hover {
-  background: #f7fafc;
+  background: var(--bg-hover);
   transform: translateX(4px);
 }
 
 .step-nav-item.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   color: white;
   transform: translateX(8px);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  box-shadow: var(--shadow);
 }
 
 .step-nav-item .step-icon {
@@ -118,16 +121,18 @@
 
 /* Step Content */
 .step-content {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 2rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .step-header {
   margin-bottom: 2rem;
   padding-bottom: 1.5rem;
-  border-bottom: 2px solid #e2e8f0;
+  border-bottom: 2px solid var(--border-light);
 }
 
 .step-badge {
@@ -140,7 +145,7 @@
 .step-icon-large {
   font-size: 3rem;
   padding: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   border-radius: 16px;
   display: flex;
   align-items: center;
@@ -150,7 +155,7 @@
 .step-badge .step-number {
   font-size: 0.9rem;
   font-weight: 500;
-  color: #667eea;
+  color: var(--primary);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -158,13 +163,13 @@
 .step-badge .step-title {
   font-size: 2rem;
   font-weight: 700;
-  color: #1a202c;
+  color: var(--text-primary);
   margin: 0.25rem 0 0 0;
 }
 
 .step-description {
   font-size: 1.1rem;
-  color: #718096;
+  color: var(--text-tertiary);
   line-height: 1.6;
 }
 
@@ -180,27 +185,27 @@
 .tips-section {
   padding: 1.5rem;
   border-radius: 12px;
-  border-left: 4px solid #667eea;
+  border-left: 4px solid var(--primary);
 }
 
 .overview-section {
-  background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-hover) 100%);
 }
 
 .steps-section {
-  background: linear-gradient(135deg, #f0fff4 0%, #e6fffa 100%);
-  border-left-color: #38a169;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-hover) 100%);
+  border-left-color: var(--success);
 }
 
 .tips-section {
-  background: linear-gradient(135deg, #fffaf0 0%, #fef5e7 100%);
-  border-left-color: #ed8936;
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-hover) 100%);
+  border-left-color: var(--warning);
 }
 
 .step-body h3 {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--text-primary);
   margin-bottom: 1rem;
   display: flex;
   align-items: center;
@@ -219,7 +224,7 @@
   padding-left: 2.5rem;
   position: relative;
   line-height: 1.6;
-  color: #2d3748;
+  color: var(--text-primary);
 }
 
 .instruction-item::before {
@@ -229,7 +234,7 @@
   top: 0.75rem;
   width: 1.5rem;
   height: 1.5rem;
-  background: #38a169;
+  background: var(--success);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -249,7 +254,7 @@
   padding-left: 1.5rem;
   position: relative;
   line-height: 1.6;
-  color: #2d3748;
+  color: var(--text-primary);
 }
 
 .tip-item::before {
@@ -266,7 +271,7 @@
   align-items: center;
   margin-top: 2rem;
   padding-top: 1.5rem;
-  border-top: 2px solid #e2e8f0;
+  border-top: 2px solid var(--border-light);
 }
 
 .nav-button {
@@ -282,18 +287,18 @@
 }
 
 .nav-button.prev {
-  background: #e2e8f0;
-  color: #4a5568;
+  background: var(--border-light);
+  color: var(--text-primary);
 }
 
 .nav-button.next {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   color: white;
 }
 
 .nav-button:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow);
 }
 
 .nav-button:disabled {
@@ -304,24 +309,26 @@
 
 .step-indicator {
   font-weight: 600;
-  color: #667eea;
+  color: var(--primary);
   padding: 0.5rem 1rem;
-  background: #f7fafc;
+  background: var(--bg-hover);
   border-radius: 20px;
 }
 
 /* Quick Links Section */
 .quick-links-section {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 2rem;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--shadow-sm);
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .quick-links-section h3 {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--text-primary);
   margin-bottom: 1.5rem;
   text-align: center;
 }
@@ -337,7 +344,7 @@
   align-items: center;
   gap: 1rem;
   padding: 1.5rem;
-  background: #f7fafc;
+  background: var(--bg-secondary);
   border-radius: 12px;
   text-decoration: none;
   color: inherit;
@@ -346,10 +353,10 @@
 }
 
 .quick-link-card:hover {
-  background: white;
-  border-color: #667eea;
+  background: var(--bg-card);
+  border-color: var(--primary);
   transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(102, 126, 234, 0.15);
+  box-shadow: var(--shadow-lg);
   text-decoration: none;
   color: inherit;
 }
@@ -357,7 +364,7 @@
 .quick-link-icon {
   font-size: 2rem;
   padding: 0.75rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -367,13 +374,13 @@
 .quick-link-card h4 {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #2d3748;
+  color: var(--text-primary);
   margin: 0 0 0.25rem 0;
 }
 
 .quick-link-card p {
   font-size: 0.9rem;
-  color: #718096;
+  color: var(--text-tertiary);
   margin: 0;
 }
 

@@ -1,18 +1,16 @@
-import InnerNavbar from '../navbar/InnerNavbar'
 import "./DataSource.css";
-import Sidebar from '../Sidebar/Sidebar';
-import KnowledgeBaseModal from '../KnowledgeBaseModal/KnowledgeBaseModal';
 import SimpleLoader from '../common/SimpleLoader';
 import AOS from 'aos';
 import 'aos/dist/aos.css';
 import { useEffect, useState, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { dataSourceService } from '../../services/datasource.service';
 import { chatbotService } from '../../services/chatbot.service';
 import { useAuth } from '../../contexts/AuthContext';
 
   const DataSource = () => {
     const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
     const { hasPermission } = useAuth();
     
     const [dataSources, setDataSources] = useState([]);
@@ -25,30 +23,9 @@ import { useAuth } from '../../contexts/AuthContext';
     const [showUrlInput, setShowUrlInput] = useState(false);
     const [crawlUrl, setCrawlUrl] = useState('');
     const [crawling, setCrawling] = useState(false);
-    const [filterStatus, setFilterStatus] = useState('all');
-    const [filterType, setFilterType] = useState('all');
     const [pollingSources, setPollingSources] = useState(new Set());
-    const [selectedDataSourceId, setSelectedDataSourceId] = useState(null);
     const [crawlProgress, setCrawlProgress] = useState({}); // Track progress by data_source_id
 
-    // Debug state changes
-    useEffect(() => {
-      console.log('selectedDataSourceId changed:', selectedDataSourceId);
-    }, [selectedDataSourceId]);
-
-    // Get the selected data source from the dataSources array
-    const selectedDataSource = selectedDataSourceId 
-      ? dataSources.find(source => source.id === selectedDataSourceId)
-      : null;
-
-    // Debug selected data source
-    useEffect(() => {
-      if (selectedDataSourceId) {
-        console.log('Looking for data source with ID:', selectedDataSourceId);
-        console.log('Available data sources:', dataSources.map(s => ({ id: s.id, name: s.source_name })));
-        console.log('Found selected data source:', selectedDataSource);
-      }
-    }, [selectedDataSourceId, dataSources, selectedDataSource]);
     const fileInputRef = useRef(null);
 
       useEffect(() => {
@@ -77,23 +54,33 @@ import { useAuth } from '../../contexts/AuthContext';
         try {
           for (const sourceId of pollingSources) {
             const status = await dataSourceService.getDataSourceStatus(sourceId);
-            if (status.status === 'completed' || status.status === 'failed') {
+            if (status.status === 'completed') {
               setPollingSources(prev => {
                 const newSet = new Set(prev);
                 newSet.delete(sourceId);
                 return newSet;
               });
-              // Refresh the list to show updated status
-              loadDataSources();
+              // Refresh list and redirect to knowledge base
+              await loadDataSources();
+              alert('✅ Processing completed! Redirecting to Knowledge Base...');
+              navigate('/knowledge-base');
+              return;
+            } else if (status.status === 'failed') {
+              setPollingSources(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(sourceId);
+                return newSet;
+              });
+              await loadDataSources();
             }
           }
         } catch (error) {
           console.error('Error polling status:', error);
         }
-      }, 3000); // Poll every 3 seconds
+      }, 3000);
 
       return () => clearInterval(interval);
-    }, [pollingSources]);
+    }, [pollingSources, navigate]);
 
     // WebSocket listeners for crawl updates
     useEffect(() => {
@@ -117,13 +104,14 @@ import { useAuth } from '../../contexts/AuthContext';
       // Listen for crawl completion
       const handleCrawlCompleted = (data) => {
         console.log('✅ Crawl completed:', data);
-        alert(`✅ Web crawl completed successfully!\n\n${data.message}`);
         setCrawlProgress(prev => {
           const newProgress = { ...prev };
           delete newProgress[data.data_source_id];
           return newProgress;
         });
         loadDataSources();
+        alert('✅ Web crawl completed! Redirecting to Knowledge Base...');
+        navigate('/knowledge-base');
       };
 
       // Listen for crawl failure
@@ -163,17 +151,20 @@ import { useAuth } from '../../contexts/AuthContext';
         setLoading(true);
         setError(null);
         
-        const filters = { per_page: 50 };
+        const filters = { per_page: 500 };
         if (selectedChatbot) filters.chatbot_id = selectedChatbot;
-        if (filterStatus !== 'all') filters.status = filterStatus;
-        if (filterType !== 'all') filters.source_type = filterType;
         
         const response = await dataSourceService.getDataSources(filters);
-        const sources = response.data_sources || [];
-        setDataSources(sources);
+        const allSources = response.data_sources || [];
         
-        // Start polling for processing sources (include 'uploading' — initial status after upload)
-        const processingSources = sources
+        // Only show pending/processing/failed sources (completed ones are in Knowledge Base)
+        const activeSources = allSources.filter(s => 
+          s.status === 'pending' || s.status === 'processing' || s.status === 'uploading' || s.status === 'failed'
+        );
+        setDataSources(activeSources);
+        
+        // Start polling for processing sources
+        const processingSources = activeSources
           .filter(source => source.status === 'processing' || source.status === 'pending' || source.status === 'uploading')
           .map(source => source.id);
         
@@ -182,7 +173,6 @@ import { useAuth } from '../../contexts/AuthContext';
         }
       } catch (err) {
         if (err.message === 'Authentication required') {
-          // Redirect to login
           window.location.href = '/login';
           return;
         }
@@ -234,12 +224,8 @@ import { useAuth } from '../../contexts/AuthContext';
           fileInputRef.current.value = '';
         }
         
-        // Show appropriate message
-        if (result.warning) {
-          alert(`✅ ${result.warning}\n\nFiles uploaded: ${files.length}`);
-        } else {
-          alert(`✅ Successfully uploaded ${files.length} files!`);
-        }
+        // Show message and start polling
+        alert(`✅ Files uploaded! Processing started. You'll be redirected to Knowledge Base when done.`);
       } catch (err) {
         setError(err.message);
         console.error('Error uploading files:', err);
@@ -276,7 +262,7 @@ import { useAuth } from '../../contexts/AuthContext';
         
         setCrawlUrl('');
         setShowUrlInput(false);
-        alert(`Web crawling started for: ${crawlUrl}`);
+        alert(`🌐 Web crawling started! You'll be redirected to Knowledge Base when done.`);
       } catch (err) {
         setError(err.message);
         console.error('Error starting web crawl:', err);
@@ -323,11 +309,6 @@ import { useAuth } from '../../contexts/AuthContext';
 
     return (
       <>
-        <div className="layout-container">
-          <Sidebar />
-          <div className="main-content">
-            <InnerNavbar />
-
             <div className="page" id="training" data-aos="fade-up" data-aos-delay="200">
             <div className="page-header">
                 <div className="header-content">
@@ -358,40 +339,6 @@ import { useAuth } from '../../contexts/AuthContext';
                         {bot.name}
                       </option>
                     ))}
-                  </select>
-                </div>
-
-                <div className="filter-group">
-                  <label>Status:</label>
-                  <select 
-                    value={filterStatus} 
-                    onChange={(e) => {
-                      setFilterStatus(e.target.value);
-                      loadDataSources();
-                    }}
-                    className="filter-select"
-                  >
-                    <option value="all">All Status</option>
-                    <option value="pending">Pending</option>
-                    <option value="processing">Processing</option>
-                    <option value="completed">Completed</option>
-                    <option value="failed">Failed</option>
-                  </select>
-                </div>
-
-                <div className="filter-group">
-                  <label>Type:</label>
-                  <select 
-                    value={filterType} 
-                    onChange={(e) => {
-                      setFilterType(e.target.value);
-                      loadDataSources();
-                    }}
-                    className="filter-select"
-                  >
-                    <option value="all">All Types</option>
-                    <option value="upload">File Upload</option>
-                    <option value="crawl">Web Crawl</option>
                   </select>
                 </div>
 
@@ -597,7 +544,6 @@ import { useAuth } from '../../contexts/AuthContext';
                           <button 
                             className="action-button"
                             onClick={() => {
-                              // Refresh this specific source
                               dataSourceService.getDataSourceStatus(source.id)
                                 .then(() => loadDataSources())
                                 .catch(console.error);
@@ -605,18 +551,6 @@ import { useAuth } from '../../contexts/AuthContext';
                             title="Check status"
                           >
                             🔄 Status
-                          </button>
-                        )}
-                        {source.status === 'completed' && (
-                          <button 
-                            className="action-button knowledge"
-                            onClick={() => {
-                              console.log('Selected data source:', source);
-                              setSelectedDataSourceId(source.id);
-                            }}
-                            title="View processed knowledge base"
-                          >
-                            📚 Knowledge Base
                           </button>
                         )}
                         {hasPermission('manage_chatbots') && (
@@ -644,17 +578,7 @@ import { useAuth } from '../../contexts/AuthContext';
                   ))}
                     </div>
               )}
-                </div>
-                </div>
-        </div>
-        
-        {/* Knowledge Base Modal */}
-        {selectedDataSource && selectedDataSource.id && (
-          <KnowledgeBaseModal
-            dataSource={selectedDataSource}
-            onClose={() => setSelectedDataSourceId(null)}
-          />
-        )}
+            </div>
       </>
     );
   };

@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Sidebar from '../Sidebar/Sidebar';
-import InnerNavbar from '../navbar/InnerNavbar';
+
 import conversationService from '../../services/conversation.service';
 import './ChatHistory.css';
 
@@ -39,10 +38,6 @@ const ConversationDetail = () => {
     const formatDate = (d) => new Date(d).toLocaleString();
 
     return (
-        <div className="layout-container">
-            <Sidebar />
-            <div className="main-content">
-                <InnerNavbar />
                 <div className="page" id="conversation-detail">
                     <div className="page-header">
                         <div>
@@ -103,8 +98,6 @@ const ConversationDetail = () => {
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
     );
 };
 
