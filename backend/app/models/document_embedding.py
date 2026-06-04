@@ -29,7 +29,7 @@ class DocumentEmbedding(db.Model):
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), nullable=True, index=True)
     provider = db.Column(db.String(20), nullable=False, default='openai')
     embedding_openai = _vector_col(3072)
-    embedding_gemini = _vector_col(768)
+    embedding_gemini = _vector_col(3072)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self):

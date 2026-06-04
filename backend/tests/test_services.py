@@ -46,8 +46,7 @@ class TestEmbeddingService:
     """Tests for the embedding generation service."""
     
     @patch('app.services.embedding_service.OpenAIEmbeddings')
-    @patch('app.services.embedding_service.GoogleGenerativeAIEmbeddings')
-    def test_generate_embeddings_openai(self, mock_gemini_embed, mock_openai_embed, app):
+    def test_generate_embeddings_openai(self, mock_openai_embed, app):
         mock_openai_embed.return_value.embed_documents.return_value = [[0.1, 0.2]]
         
         results = embedding_service.generate_embeddings_for_texts(["test text"])

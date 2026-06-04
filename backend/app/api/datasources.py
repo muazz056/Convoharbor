@@ -1034,7 +1034,7 @@ def get_data_source_chunks(data_source_id):
                     'embedding_stats': {
                         'provider': embed_provider,
                         'vector_length': len(chunk.get('embeddings', {}).get(embed_provider, [])),
-                        'has_embedding': bool(chunk.get('embeddings', {}).get(embed_provider))
+                        'has_embedding': chunk.get('embeddings', {}).get(embed_provider) is not None
                     }
                 }
                 chunk_data.append(chunk_info)

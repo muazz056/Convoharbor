@@ -87,8 +87,13 @@ class Config:
 
     # Embedding Service Selection
     EMBEDDINGS_SERVICE_USE = os.environ.get('EMBEDDINGS_SERVICE_USE', 'openai')
+    OPENAI_API_BASE = os.environ.get('OPENAI_API_BASE', 'https://api.openai.com/v1')
     OPENAI_EMBEDDING_MODEL = os.environ.get('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-large')
-    GEMINI_EMBEDDING_MODEL = os.environ.get('GEMINI_EMBEDDING_MODEL', 'models/embedding-001')
+    GEMINI_API_BASE_URL = os.environ.get('GEMINI_API_BASE_URL', 'generativelanguage.googleapis.com')
+    GEMINI_EMBEDDING_MODEL = os.environ.get('GEMINI_EMBEDDING_MODEL', 'models/gemini-embedding-2')
+    GEMINI_EMBEDDING_FALLBACK_MODEL = os.environ.get('GEMINI_EMBEDDING_FALLBACK_MODEL', 'models/gemini-embedding-001')
+    EMBEDDING_MAX_RETRIES = int(os.environ.get('EMBEDDING_MAX_RETRIES', '3'))
+    EMBEDDING_RETRY_BASE_DELAY = float(os.environ.get('EMBEDDING_RETRY_BASE_DELAY', '2.0'))
 
     # Retrieval & Document Processing Settings
     RETRIEVAL_SCORE_THRESHOLD = 0.4

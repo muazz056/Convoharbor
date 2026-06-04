@@ -172,9 +172,9 @@ import { useAuth } from '../../contexts/AuthContext';
         const sources = response.data_sources || [];
         setDataSources(sources);
         
-        // Start polling for processing sources
+        // Start polling for processing sources (include 'uploading' — initial status after upload)
         const processingSources = sources
-          .filter(source => source.status === 'processing' || source.status === 'pending')
+          .filter(source => source.status === 'processing' || source.status === 'pending' || source.status === 'uploading')
           .map(source => source.id);
         
         if (processingSources.length > 0) {
