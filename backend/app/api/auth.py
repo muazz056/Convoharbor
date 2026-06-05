@@ -699,3 +699,240 @@ def get_current_user():
         'last_login': user.last_login.isoformat() if user.last_login else None,
         'permissions': current_app.auth_service.get_user_permissions(user)
     })
+
+
+# ============================================
+# PASSWORD RESET FLOW
+# ============================================
+
+@api.route('/auth/forgot-password', methods=['POST', 'OPTIONS'])
+@swag_from({
+    'tags': ['Authentication'],
+    'summary': 'Request a password reset code',
+    'description': 'Sends a 6-digit verification code to the user\'s email for password reset.',
+    'parameters': [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {
+                'type': 'object',
+                'required': ['email'],
+                'properties': {
+                    'email': {'type': 'string', 'example': 'user@example.com'}
+                }
+            }
+        }
+    ],
+    'responses': {
+        200: {'description': 'Reset code sent (or email not found, returned silently for security)'},
+        400: {'description': 'Invalid request'}
+    }
+})
+def forgot_password():
+    """Send a 6-digit password reset code to the user's email."""
+    from ..services.email_service import send_password_reset_email
+
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
+
+        user = User.query.filter_by(email=email).first()
+
+        # No account exists with this email
+        if not user:
+            current_app.logger.info(f"Password reset requested for non-existent email: {email}")
+            return jsonify({
+                'success': False,
+                'user_exists': False,
+                'error': 'No account exists with this email address.'
+            }), 404
+
+        # OAuth-only users don't have a password
+        if user.oauth_provider and not user.password_hash:
+            current_app.logger.info(f"Password reset requested for OAuth-only user: {email}")
+            return jsonify({
+                'success': False,
+                'user_exists': True,
+                'oauth_only': True,
+                'error': 'This account was created with Google Sign-In. Please sign in with Google instead.'
+            }), 400
+
+        # Generate a 6-digit numeric code
+        reset_code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+
+        user.reset_token = reset_code
+        user.reset_token_expires = datetime.utcnow() + timedelta(minutes=15)
+        db.session.commit()
+
+        # Send email
+        try:
+            send_password_reset_email(user, reset_code)
+            current_app.logger.info(f"Password reset code sent to: {email}")
+        except Exception as e:
+            current_app.logger.error(f"Failed to send password reset email: {e}")
+            return jsonify({
+                'error': 'Failed to send reset email. Please try again later.'
+            }), 500
+
+        return jsonify({
+            'success': True,
+            'user_exists': True,
+            'message': 'A 6-digit verification code has been sent to your email. Please check your inbox.'
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error in forgot_password: {e}")
+        db.session.rollback()
+        return jsonify({
+            'error': 'An unexpected error occurred. Please try again.'
+        }), 500
+
+
+@api.route('/auth/verify-reset-code', methods=['POST', 'OPTIONS'])
+@swag_from({
+    'tags': ['Authentication'],
+    'summary': 'Verify the password reset code',
+    'description': 'Validates the 6-digit code sent to the user\'s email. Returns a verification token to be used in the reset-password step.',
+    'parameters': [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {
+                'type': 'object',
+                'required': ['email', 'code'],
+                'properties': {
+                    'email': {'type': 'string', 'example': 'user@example.com'},
+                    'code': {'type': 'string', 'example': '123456'}
+                }
+            }
+        }
+    ],
+    'responses': {
+        200: {'description': 'Code verified, returns reset_token'},
+        400: {'description': 'Invalid or expired code'}
+    }
+})
+def verify_reset_code():
+    """Verify the 6-digit password reset code."""
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        code = (data.get('code') or '').strip()
+
+        if not email or not code:
+            return jsonify({'error': 'Email and code are required'}), 400
+
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.reset_token:
+            return jsonify({'error': 'Invalid or expired verification code'}), 400
+
+        if user.reset_token != code:
+            return jsonify({'error': 'Invalid verification code'}), 400
+
+        if not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+            # Clear expired token
+            user.reset_token = None
+            user.reset_token_expires = None
+            db.session.commit()
+            return jsonify({'error': 'Verification code has expired. Please request a new one.'}), 400
+
+        # Generate a one-time use token to authorize the password reset step
+        reset_authorization_token = secrets.token_urlsafe(32)
+        user.reset_token = reset_authorization_token
+        user.reset_token_expires = datetime.utcnow() + timedelta(minutes=15)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': 'Code verified successfully.',
+            'reset_token': reset_authorization_token
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error in verify_reset_code: {e}")
+        db.session.rollback()
+        return jsonify({
+            'error': 'An unexpected error occurred. Please try again.'
+        }), 500
+
+
+@api.route('/auth/reset-password', methods=['POST', 'OPTIONS'])
+@swag_from({
+    'tags': ['Authentication'],
+    'summary': 'Set a new password using the verified reset token',
+    'description': 'Resets the user\'s password using the authorization token from verify-reset-code.',
+    'parameters': [
+        {
+            'name': 'body',
+            'in': 'body',
+            'required': True,
+            'schema': {
+                'type': 'object',
+                'required': ['email', 'reset_token', 'new_password'],
+                'properties': {
+                    'email': {'type': 'string', 'example': 'user@example.com'},
+                    'reset_token': {'type': 'string', 'example': 'abc123...'},
+                    'new_password': {'type': 'string', 'example': 'NewPassword123!'}
+                }
+            }
+        }
+    ],
+    'responses': {
+        200: {'description': 'Password reset successfully'},
+        400: {'description': 'Invalid token or weak password'}
+    }
+})
+def reset_password():
+    """Set a new password using the verified reset token."""
+    try:
+        data = request.get_json() or {}
+        email = (data.get('email') or '').strip().lower()
+        reset_token = (data.get('reset_token') or '').strip()
+        new_password = data.get('new_password') or ''
+
+        if not email or not reset_token or not new_password:
+            return jsonify({'error': 'Email, reset_token, and new_password are required'}), 400
+
+        # Validate password strength
+        password_errors = validate_password_strength(new_password)
+        if password_errors:
+            return jsonify({
+                'error': 'Password must contain ' + ', '.join(password_errors)
+            }), 400
+
+        user = User.query.filter_by(email=email).first()
+        if not user or not user.reset_token:
+            return jsonify({'error': 'Invalid or expired reset token'}), 400
+
+        if user.reset_token != reset_token:
+            return jsonify({'error': 'Invalid reset token'}), 400
+
+        if not user.reset_token_expires or user.reset_token_expires < datetime.utcnow():
+            user.reset_token = None
+            user.reset_token_expires = None
+            db.session.commit()
+            return jsonify({'error': 'Reset token has expired. Please start the process again.'}), 400
+
+        # Hash and save the new password
+        user.password_hash = current_app.auth_service.hash_password(new_password)
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.session.commit()
+
+        current_app.logger.info(f"Password successfully reset for user: {email}")
+        return jsonify({
+            'success': True,
+            'message': 'Your password has been reset successfully. You can now log in with your new password.'
+        }), 200
+
+    except Exception as e:
+        current_app.logger.error(f"Error in reset_password: {e}")
+        db.session.rollback()
+        return jsonify({
+            'error': 'An unexpected error occurred. Please try again.'
+        }), 500

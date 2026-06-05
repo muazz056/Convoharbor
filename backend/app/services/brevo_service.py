@@ -1,5 +1,6 @@
 import requests
 from flask import current_app
+import os
 
 
 class BrevoService:
@@ -8,7 +9,12 @@ class BrevoService:
         if not self.api_key:
             raise ValueError("BREVO_API_KEY is not configured")
         self.sender_email = app.config.get('BREVO_SENDER_EMAIL')
-        self.sender_name = app.config.get('BREVO_SENDER_NAME', 'ConvoPilot')
+        self.app_name = (
+            os.environ.get('APP_NAME')
+            or app.config.get('APP_NAME')
+            or 'Convoharbor'
+        )
+        self.sender_name = app.config.get('BREVO_SENDER_NAME', f'{self.app_name} Team')
         self.base_url = 'https://api.brevo.com/v3'
         self.session = requests.Session()
         self.session.headers.update({

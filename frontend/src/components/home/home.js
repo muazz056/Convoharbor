@@ -8,7 +8,6 @@ import 'aos/dist/aos.css';
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import ChatWidget from '../ChatWidget/ChatWidget';
 
 const features = [
   { icon: '🤖', title: 'AI-Powered Responses', desc: 'Smart chatbot that understands context and delivers accurate answers trained on your business data.' },
@@ -194,11 +193,6 @@ const Home = () => {
       </section>
 
       <Footer />
-
-      {(() => {
-        const id = Number(process.env.REACT_APP_PUBLIC_CHATBOT_ID);
-        return <ChatWidget publicMode={true} chatbotId={Number.isFinite(id) ? id : undefined} />;
-      })()}
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { AuthProvider } from './contexts/AuthContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
@@ -14,8 +14,6 @@ import ForgotPassword from './components/Forgot_password/Forgot_password';
 import VerifyCode from './components/VerifyCode/VerifyCode';
 import SetPassword from './components/SetPassword/SetPassword';
 import EmailConfirmation from './components/EmailConfirmation/EmailConfirmation';
-import ChatWidget from './components/ChatWidget/ChatWidget';
-import GeneralChatWidget from './components/ChatWidget/GeneralChatWidget';
 import Mychatbot from './components/Mychatbot/Mychatbot';
 import Analytics from './components/Analytics/Analytics';
 import CreateBot from './components/CreateBot/CreateBot';
@@ -31,7 +29,6 @@ import Webhooks from './components/Webhooks/Webhooks';
 import Settings from './components/Settings/Settings';
 import AdminDashboard from './components/admin/Dashboard';
 import TenantManagement from './components/admin/TenantManagement';
-import TestChatPage from './components/TestChat/TestChatPage';
 import OAuthCallback from './components/OAuthCallback/OAuthCallback';
 import PublicChat from './components/PublicChat/PublicChat';
 import ManageChatbots from './components/ManageChatbots/ManageChatbots';
@@ -136,23 +133,14 @@ function App() {
                     <ConfigureModels />
                   </ProtectedRoute>
                 } />
-                <Route exact path="/chatbot/:id/test" element={<TestChatPage />} />
               </Route>
             </Routes>
           </WebSocketProvider>
         } />
       </Routes>
-      <ConditionalGeneralWidget />
     </Router>
     </AuthProvider>
   );
-}
-
-function ConditionalGeneralWidget() {
-  const location = useLocation();
-  const isPublicEmbedPage = location.pathname.startsWith('/public/chat/');
-  if (isPublicEmbedPage) return null;
-  return <GeneralChatWidget />;
 }
 
 export default App;

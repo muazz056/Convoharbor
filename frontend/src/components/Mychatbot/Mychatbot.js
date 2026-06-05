@@ -8,6 +8,7 @@ import { chatbotService } from '../../services/chatbot.service';
 import { dataSourceService } from '../../services/datasource.service';
 import widgetService from '../../services/widget.service';
 import EmbedScriptModal from '../EmbedScriptModal/EmbedScriptModal';
+import ChatWidget from '../ChatWidget/ChatWidget';
 import { useAuth } from '../../contexts/AuthContext';
 
 
@@ -19,6 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
   const [isEmbedOpen, setIsEmbedOpen] = useState(false);
   const [embedScript, setEmbedScript] = useState('');
   const [selectedChatbotId, setSelectedChatbotId] = useState(null);
+  const [activeTestChatId, setActiveTestChatId] = useState(null);
     const { hasPermission, user } = useAuth();
     const navigate = useNavigate();
 
@@ -125,6 +127,16 @@ import { useAuth } from '../../contexts/AuthContext';
           setError(err.message || 'Failed to delete chatbot');
         }
       }
+    };
+
+    const handleTestChatToggle = (chatbotId) => {
+      // If clicking the same toggle, close it
+      // If clicking a different one, switch to it (closes the previous automatically)
+      setActiveTestChatId(prevId => prevId === chatbotId ? null : chatbotId);
+    };
+
+    const handleTestChatClose = () => {
+      setActiveTestChatId(null);
     };
 
     const getStatusBadge = (status) => {
@@ -256,34 +268,25 @@ import { useAuth } from '../../contexts/AuthContext';
                         </div>
 
                         <div className="card-actions">
-                          {hasPermission('manage_chatbots') && (
-                            <Link 
-                              to={`/configuration-design?id=${chatbot.id}`}
-                              className="action-button primary"
-                            >
-                              ⚙️ Configure
-                            </Link>
-                          )}
-                          <Link 
-                            to={`/chatbot/${chatbot.id}/test`}
-                            className="action-button secondary"
+                          <div
+                            className={`test-chat-toggle ${activeTestChatId === chatbot.id ? 'active' : ''}`}
+                            onClick={() => handleTestChatToggle(chatbot.id)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyPress={(e) => { if (e.key === 'Enter' || e.key === ' ') handleTestChatToggle(chatbot.id); }}
+                            aria-pressed={activeTestChatId === chatbot.id}
                           >
-                            🧪 Test Chat
-                          </Link>
+                            <span className="test-toggle-text">🧪 Test Chat</span>
+                            <span className={`test-toggle-track ${activeTestChatId === chatbot.id ? 'active' : ''}`}>
+                              <span className="test-toggle-knob"></span>
+                            </span>
+                          </div>
                           {hasPermission('manage_chatbots') && (
-                            <button 
+                            <button
                               onClick={() => handleDelete(chatbot.id)}
                               className="action-button danger"
                             >
                               🗑️ Delete
-                            </button>
-                          )}
-                          {hasPermission('manage_chatbots') && canEmbed && (
-                            <button 
-                              onClick={() => loadEmbedScript(chatbot.id)}
-                              className="action-button success"
-                            >
-                              📋 Embed
                             </button>
                           )}
                         </div>
@@ -300,6 +303,14 @@ import { useAuth } from '../../contexts/AuthContext';
           chatbotId={selectedChatbotId}
           publicAppUrl={process.env.REACT_APP_PUBLIC_APP_URL || window.location.origin}
         />
+        {activeTestChatId && (
+          <ChatWidget
+            key={activeTestChatId}
+            chatbotId={activeTestChatId}
+            testMode={true}
+            onClose={handleTestChatClose}
+          />
+        )}
       </>
     );
   };

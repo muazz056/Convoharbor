@@ -1,108 +1,66 @@
-body, html {
-  height: 100%;
-  margin: 0;
-  font-family: 'Segoe UI', sans-serif;
-}
+/* ========================================
+   VERIFY CODE PAGE
+   Uses shared auth-page design system
+   ======================================== */
 
-
-.white-text{
-  text-decoration: none;
-  color: white;
-}
-
-.right-pane {
-  width: 40%;
-  background: linear-gradient(180deg, #61A6A7, #1D4880);
-  color: #fff;
-  align-items: center;
+.code-input-group {
+  display: flex;
+  gap: 10px;
   justify-content: center;
-  padding: 3rem 2rem;
-  font-family: 'poppins', sans-serif;
-  border-radius: 20px;
-  filter: drop-shadow(3px 3px 6px rgba(0,0,0,0.4));
+  margin: 8px 0;
 }
 
-.form-box {
-  width: 100%;
-  max-width: 400px;
+.code-input {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  border: 2px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #111827;
+  transition: all 0.2s ease;
+  font-family: 'Courier New', monospace;
+  caret-color: #6366f1;
+  outline: none;
 }
 
-
-.form-check-label, .form-text {
-  color: #ccc;
+.code-input:hover {
+  border-color: #c7d2fe;
 }
 
-.social-login .btn {
-  width: 48%;
+.code-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.12);
+  background: #fafbff;
 }
 
-#login-text {
-  font-family: 'Montserrat', sans-serif;
+.code-input:disabled {
+  background: #f9fafb;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
 
-#login_button {
-  background-color: #061942;
-  color: white;
+/* Hide number input spinners */
+.code-input::-webkit-outer-spin-button,
+.code-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
-#login_button:hover {
-  background-color: #0c2c72;
+.code-input[type=number] {
+  -moz-appearance: textfield;
 }
 
-
-/* ========================= */
-/*     MEDIA QUERIES        */
-/* ========================= */
-/* Base responsiveness for right-pane */
-/* Base responsiveness for right-pane */
-@media (max-width: 992px) {
-  .right-pane {
-    left: 15% !important;
-    top: 10% !important;
-    width: 70% !important;
-    padding: 2rem 1.5rem !important;
+@media (max-width: 480px) {
+  .code-input {
+    width: 40px;
+    height: 48px;
+    font-size: 20px;
   }
 
-  .form-box {
-    max-width: 100%;
-  }
-
-  .social-login {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .social-login .btn {
-    width: 100%;
-  }
-}
-
-@media (max-width: 768px) {
-  .right-pane {
-    left: 10% !important;
-    top: 10% !important;
-    width: 80% !important;
-  }
-}
-
-@media (max-width: 576px) {
-  .right-pane {
-    position: static !important;
-    width: 100% !important;
-    padding: 1rem !important;
-    margin-top: 5rem;
-  }
-
-  .form-box {
-    padding: 0;
-  }
-
-  .social-login {
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .social-login .btn {
-    width: 100%;
+  .code-input-group {
+    gap: 6px;
   }
 }

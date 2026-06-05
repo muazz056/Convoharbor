@@ -85,6 +85,8 @@ class User(db.Model):
     email_confirmed_at = db.Column(db.DateTime, nullable=True)
     confirmation_token = db.Column(db.String(100), unique=True, nullable=True)
     confirmation_token_expires = db.Column(db.DateTime, nullable=True)
+    reset_token = db.Column(db.String(100), unique=True, nullable=True)
+    reset_token_expires = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

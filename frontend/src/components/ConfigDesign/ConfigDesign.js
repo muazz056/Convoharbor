@@ -233,9 +233,16 @@ import widgetService from '../../services/widget.service';
     return (
       <>
             <div className="page" id="config-design">
+              <div className="config-breadcrumb">
+                <Link to="/chatbot">My Chatbots</Link>
+                <span className="separator">›</span>
+                <span className="current">Configuration & Design</span>
+              </div>
               <div className="page-header">
-                <h1 className="page-title">Configuration & Design</h1>
-                <p className="page-subtitle">Select a chatbot to configure its settings</p>
+                <div>
+                  <h1 className="page-title">Configuration & Design</h1>
+                  <p className="page-subtitle">Select a chatbot to configure its settings</p>
+                </div>
               </div>
 
               <div className="section-card">
@@ -272,16 +279,31 @@ import widgetService from '../../services/widget.service';
     return (
       <>
           <div className="page" id="config-design">
+            <div className="config-breadcrumb">
+              <Link to="/chatbot">My Chatbots</Link>
+              <span className="separator">›</span>
+              <Link to="/configuration-design">Configuration</Link>
+              <span className="separator">›</span>
+              <span className="current">{formData?.name || 'Loading...'}</span>
+            </div>
             <div className="page-header">
-              <h1 className="page-title">Configure Chatbot: {formData?.name || 'Loading...'}</h1>
-              <p className="page-subtitle">Update your AI assistant's settings</p>
+              <div>
+                <h1 className="page-title">Configure: {formData?.name || 'Loading...'}</h1>
+                <p className="page-subtitle">Update your AI assistant's settings</p>
+              </div>
             </div>
             <div className="section-card">
               <form onSubmit={handleUpdate}>
                 {/* Form fields similar to CreateBot, pre-filled with formData */}
                 {/* Basic Information */}
                 <div className="form-section">
-                  <h3 className="form-section-title">🤖 Basic Information</h3>
+                  <div className="form-section-header">
+                    <div className="form-section-icon">🤖</div>
+                    <div className="form-section-title-group">
+                      <h3 className="form-section-title">Basic Information</h3>
+                      <p className="form-section-subtitle">Name, description, and type</p>
+                    </div>
+                  </div>
                   <div className="form-group">
                     <label htmlFor="name">
                       <span className="field-icon">📝</span>
@@ -409,7 +431,13 @@ import widgetService from '../../services/widget.service';
                 {/* Advanced Settings (Super Admin only) */}
                 {(isSuperAdminMode || user?.role === 'super_admin') && (
                 <div className="form-section">
-                  <h3 className="form-section-title">⚙️ Advanced Settings</h3>
+                  <div className="form-section-header">
+                    <div className="form-section-icon amber">⚙️</div>
+                    <div className="form-section-title-group">
+                      <h3 className="form-section-title">Advanced Settings</h3>
+                      <p className="form-section-subtitle">Fine-tune model behavior</p>
+                    </div>
+                  </div>
                   <div className="form-grid">
                     <div className="form-group">
                       <label>
@@ -487,7 +515,13 @@ import widgetService from '../../services/widget.service';
 
                 {/* Theme Customization */}
                 <div className="form-section">
-                  <h3 className="form-section-title">🎨 Appearance Settings</h3>
+                  <div className="form-section-header">
+                    <div className="form-section-icon pink">🎨</div>
+                    <div className="form-section-title-group">
+                      <h3 className="form-section-title">Appearance Settings</h3>
+                      <p className="form-section-subtitle">Customize how the widget looks</p>
+                    </div>
+                  </div>
                   <div className="theme-customization">
                     <div className="theme-settings">
                       <div className="form-group">

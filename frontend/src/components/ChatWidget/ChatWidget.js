@@ -3,9 +3,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useAuth } from '../../contexts/AuthContext';
 import './ChatWidget.css';
 
-const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalConversationId, externalSocket = null }) => {
-    console.log('🚀🚀🚀 ChatWidget MOUNTING - Props:', { publicMode, chatbotId, externalConversationId });
-    
+const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversationId: externalConversationId, externalSocket = null, onClose }) => {
+    console.log('🚀🚀🚀 ChatWidget MOUNTING - Props:', { publicMode, testMode, chatbotId, externalConversationId });
+
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([]);
     const [input, setInput] = useState('');
@@ -20,6 +20,14 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
     const { user } = useAuth();
     const socket = externalSocket || contextSocket;
     const messagesEndRef = useRef(null);
+
+    // Storage key for test mode (local-only messages)
+    const getTestStorageKey = () => `test_widget_messages_${chatbotId}`;
+
+    const handleClose = () => {
+        setIsOpen(false);
+        if (onClose) onClose();
+    };
     // Persist rating prompt across re-mounts (when stream closes and widget rerenders)
     const getRatingStorageKey = (convId) => convId ? `convopilot_rating_prompt_${convId}` : null;
 
@@ -157,16 +165,32 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                 
                 console.log('🎨 Theme debug - Final theme settings:', themeSettings);
                 setThemeConfig(themeSettings);
-                
+
                 // Set initial welcome message when theme loads (only if no messages exist)
                 if (messages.length === 0) {
+                    if (testMode) {
+                        // Load from localStorage in test mode
+                        try {
+                            const stored = localStorage.getItem(getTestStorageKey());
+                            if (stored) {
+                                const parsed = JSON.parse(stored);
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                    console.log('📦 Loaded test messages from localStorage:', parsed.length);
+                                    setMessages(parsed);
+                                    return;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('⚠️ Failed to load test messages:', e);
+                        }
+                    }
                     setMessages([{
                         message_type: 'assistant',
                         content: themeSettings.welcomeMessage,
                         timestamp: new Date().toISOString()
                     }]);
                 }
-                
+
             } catch (error) {
                 console.error('❌ Failed to fetch chatbot info:', error);
                 // Fallback theme settings
@@ -176,9 +200,21 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                     welcomeMessage: `Hello! I'm your assistant. How can I help you today?`
                 };
                 setThemeConfig(fallbackTheme);
-                
+
                 // Set fallback welcome message
                 if (messages.length === 0) {
+                    if (testMode) {
+                        try {
+                            const stored = localStorage.getItem(getTestStorageKey());
+                            if (stored) {
+                                const parsed = JSON.parse(stored);
+                                if (Array.isArray(parsed) && parsed.length > 0) {
+                                    setMessages(parsed);
+                                    return;
+                                }
+                            }
+                        } catch (e) {}
+                    }
                     setMessages([{
                         message_type: 'assistant',
                         content: fallbackTheme.welcomeMessage,
@@ -369,8 +405,9 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
 
         // Start timing
         const requestStartTime = performance.now();
-        console.log('⏱️ [EMBED CHAT] Request started at:', new Date().toISOString());
-        console.log('⏱️ [EMBED CHAT] Message:', currentInput);
+        const logTag = testMode ? '[TEST WIDGET]' : '[EMBED CHAT]';
+        console.log(`⏱️ ${logTag} Request started at:`, new Date().toISOString());
+        console.log(`⏱️ ${logTag} Message:`, currentInput);
 
         // Add user message to UI immediately
         const userMessage = {
@@ -378,44 +415,55 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
             content: currentInput,
             timestamp: new Date().toISOString()
         };
-        setMessages(prev => [...prev, userMessage]);
+        const newMessages = [...messages, userMessage];
+        setMessages(newMessages);
+
+        // Persist to localStorage in test mode
+        if (testMode) {
+            try {
+                localStorage.setItem(getTestStorageKey(), JSON.stringify(newMessages));
+            } catch (e) {}
+        }
 
         try {
             const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
             const storageKey = getStorageKey();
             let currentConversationId = conversationId;
 
+            // Build auth headers for test mode (test endpoint requires authentication)
+            const authToken = testMode ? (user?.token || localStorage.getItem('authToken')) : null;
+
             // Optimistic path: do not pre-validate conversation on every send
             // We will try sending first; only if server says not found, we create a new conversation and retry once.
-            if (!currentConversationId) {
+            if (!currentConversationId && !testMode) {
                 console.log('🔍 No existing conversation ID, will create new one');
             }
 
-            // Create conversation if needed (only for first message)
-            if (!currentConversationId) {
+            // Create conversation if needed (only for first message) - skip in test mode
+            if (!currentConversationId && !testMode) {
                 console.log('🔗 Creating new conversation...');
-                
+
                 // Get website context for tracking
                 const websiteContext = getWebsiteContext();
                 console.log('🌐 Website context for conversation:', websiteContext);
-                
+
                 try {
                     // Use chatbotInfo.id if available (from auto-fetch), otherwise use prop chatbotId
                     const effectiveChatbotId = chatbotInfo?.id || chatbotId;
                     if (!effectiveChatbotId) {
                         throw new Error('No chatbot available for conversation');
                     }
-                    
+
                     const res = await fetch(`${baseURL}/conversations`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
+                        body: JSON.stringify({
                             chatbot_id: Number(effectiveChatbotId),
                             is_embed: true,
                             website_context: websiteContext  // Let backend create title from website context
                         })
                     });
-                    
+
                     if (!res.ok) {
                         const errorText = await res.text();
                         let errorMessage = 'Failed to create conversation';
@@ -427,56 +475,71 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                         }
                         throw new Error(errorMessage);
                     }
-                    
+
                     const data = await res.json();
                     if (!data.conversation_id) {
                         throw new Error('No conversation ID returned from server');
                     }
-                    
+
                     console.log('✅ Conversation created:', data);
                     currentConversationId = data.conversation_id;
                     setConversationId(currentConversationId);
-                    
+
                     // Store in localStorage for persistence
                     localStorage.setItem(storageKey, currentConversationId.toString());
                 } catch (error) {
                     console.error('❌ Failed to create conversation:', error);
                     throw new Error(`Failed to start conversation: ${error.message}`);
                 }
-            } else if (!currentConversationId) {
+            } else if (!currentConversationId && !testMode) {
                 throw new Error('No conversation ID available');
             }
             
             // Streaming support: if backend supports 'Accept: text/event-stream', consume incremental tokens
             const effectiveChatbotId = chatbotInfo?.id || chatbotId;
             const tryStream = async (convId) => {
-                const streamRes = await fetch(`${baseURL}/conversations/${convId}/messages`, {
+                // Test mode: use /test-message endpoint, no DB conversation
+                const streamUrl = testMode
+                    ? `${baseURL}/chatbots/${effectiveChatbotId}/test-message`
+                    : `${baseURL}/conversations/${convId}/messages`;
+                const streamBody = testMode
+                    ? {
+                        message: currentInput,
+                        conversation_history: messages.map(msg => ({
+                            role: msg.message_type === 'user' ? 'user' : 'assistant',
+                            content: msg.content
+                        }))
+                      }
+                    : { content: currentInput, chatbot_id: Number(effectiveChatbotId) };
+
+                const streamRes = await fetch(streamUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Accept': 'text/event-stream'
+                        'Accept': 'text/event-stream',
+                        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
                     },
-                    body: JSON.stringify({ content: currentInput, chatbot_id: Number(effectiveChatbotId) })
+                    body: JSON.stringify(streamBody)
                 });
-                
+
                 if (streamRes.ok && streamRes.headers.get('content-type')?.includes('text/event-stream')) {
                     const responseReceivedTime = performance.now();
                     const timeToFirstByte = (responseReceivedTime - requestStartTime).toFixed(2);
-                    console.log(`⏱️ [EMBED CHAT] Time to first byte: ${timeToFirstByte}ms`);
+                    console.log(`⏱️ ${logTag} Time to first byte: ${timeToFirstByte}ms`);
                     console.log('🌊 Streaming response detected!');
-                    
+
                     const reader = streamRes.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = '';
                     let accumulatedContent = '';
-                    
+
                     // Keep typing indicator while waiting for response
                     // Don't create placeholder message yet - wait for actual content
                     let assistantMessageCreated = false;
                     const placeholderIndex = messages.length + 1; // after userMessage
                     let firstContentTime = null;
                     let chunkCount = 0;
-                    
+
                     // Read chunks
                     while (true) {
                         const { done, value } = await reader.read();
@@ -488,6 +551,10 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                                 if (updated[placeholderIndex]) {
                                     updated[placeholderIndex].content = accumulatedContent;
                                     updated[placeholderIndex].isStreaming = false;
+                                }
+                                // Persist test mode messages
+                                if (testMode) {
+                                    try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
                                 }
                                 return updated;
                             });
@@ -545,24 +612,30 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                                         // Append chunk
                                         accumulatedContent += data.content;
                                     }
-                                    
+
                                     // Track chunks
                                     if (data.accumulated || data.content) {
                                         chunkCount++;
                                     }
-                                    
+
                                     // Create assistant message on first content and turn off typing
                                     if ((data.accumulated || data.content) && !assistantMessageCreated) {
                                         firstContentTime = performance.now();
                                         const timeToFirstContent = (firstContentTime - requestStartTime).toFixed(2);
-                                        console.log(`⏱️ [EMBED CHAT] Time to first content: ${timeToFirstContent}ms`);
+                                        console.log(`⏱️ ${logTag} Time to first content: ${timeToFirstContent}ms`);
                                         setIsTyping(false);
-                                        setMessages(prev => [...prev, { 
-                                            message_type: 'assistant', 
-                                            content: accumulatedContent, 
-                                            timestamp: new Date().toISOString(),
-                                            isStreaming: true
-                                        }]);
+                                        setMessages(prev => {
+                                            const updated = [...prev, {
+                                                message_type: 'assistant',
+                                                content: accumulatedContent,
+                                                timestamp: new Date().toISOString(),
+                                                isStreaming: true
+                                            }];
+                                            if (testMode) {
+                                                try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                                            }
+                                            return updated;
+                                        });
                                         assistantMessageCreated = true;
                                     } else if ((data.accumulated || data.content) && assistantMessageCreated) {
                                         // Update existing assistant message
@@ -571,6 +644,9 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                                             if (updated[placeholderIndex]) {
                                                 updated[placeholderIndex].content = accumulatedContent;
                                             }
+                                            if (testMode) {
+                                                try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                                            }
                                             return updated;
                                         });
                                     }
@@ -578,16 +654,16 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                                     if (data.done) {
                                         const totalTime = (performance.now() - requestStartTime).toFixed(2);
                                         const streamingTime = firstContentTime ? (performance.now() - firstContentTime).toFixed(2) : 0;
-                                        console.log(`⏱️ [EMBED CHAT] ========== TIMING SUMMARY ==========`);
-                                        console.log(`⏱️ [EMBED CHAT] Total response time: ${totalTime}ms (${(totalTime/1000).toFixed(2)}s)`);
-                                        console.log(`⏱️ [EMBED CHAT] Time to first byte: ${timeToFirstByte}ms`);
-                                        console.log(`⏱️ [EMBED CHAT] Time to first content: ${firstContentTime ? (firstContentTime - requestStartTime).toFixed(2) : 'N/A'}ms`);
-                                        console.log(`⏱️ [EMBED CHAT] Streaming duration: ${streamingTime}ms`);
-                                        console.log(`⏱️ [EMBED CHAT] Total chunks received: ${chunkCount}`);
-                                        console.log(`⏱️ [EMBED CHAT] Response length: ${accumulatedContent.length} characters`);
-                                        console.log(`⏱️ [EMBED CHAT] Average chars per chunk: ${chunkCount > 0 ? (accumulatedContent.length / chunkCount).toFixed(2) : 'N/A'}`);
-                                        console.log(`⏱️ [EMBED CHAT] ====================================`);
-                                        
+                                        console.log(`⏱️ ${logTag} ========== TIMING SUMMARY ==========`);
+                                        console.log(`⏱️ ${logTag} Total response time: ${totalTime}ms (${(totalTime/1000).toFixed(2)}s)`);
+                                        console.log(`⏱️ ${logTag} Time to first byte: ${timeToFirstByte}ms`);
+                                        console.log(`⏱️ ${logTag} Time to first content: ${firstContentTime ? (firstContentTime - requestStartTime).toFixed(2) : 'N/A'}ms`);
+                                        console.log(`⏱️ ${logTag} Streaming duration: ${streamingTime}ms`);
+                                        console.log(`⏱️ ${logTag} Total chunks received: ${chunkCount}`);
+                                        console.log(`⏱️ ${logTag} Response length: ${accumulatedContent.length} characters`);
+                                        console.log(`⏱️ ${logTag} Average chars per chunk: ${chunkCount > 0 ? (accumulatedContent.length / chunkCount).toFixed(2) : 'N/A'}`);
+                                        console.log(`⏱️ ${logTag} ====================================`);
+
                                         console.log('✅ Stream done signal received');
                                         // Final update with complete content
                                         setMessages(prev => {
@@ -595,6 +671,9 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                                             if (updated[placeholderIndex]) {
                                                 updated[placeholderIndex].content = accumulatedContent;
                                                 updated[placeholderIndex].isStreaming = false;
+                                            }
+                                            if (testMode) {
+                                                try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
                                             }
                                             return updated;
                                         });
@@ -616,6 +695,22 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
 
             // Helper to send message
             const sendToConversation = async (convId) => {
+                if (testMode) {
+                    return fetch(`${baseURL}/chatbots/${chatbotId}/test-message`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+                        },
+                        body: JSON.stringify({
+                            message: currentInput,
+                            conversation_history: messages.map(msg => ({
+                                role: msg.message_type === 'user' ? 'user' : 'assistant',
+                                content: msg.content
+                            }))
+                        })
+                    });
+                }
                 return fetch(`${baseURL}/conversations/${convId}/messages`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -658,10 +753,11 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                 
                 // If the conversation was not found/invalid, create and retry once
                 if (
+                    !testMode && (
                     response.status === 404 ||
                     errorMessage.includes('NOT FOUND') ||
                     errorMessage.toLowerCase().includes('conversation')
-                ) {
+                )) {
                     console.log('♻️ Conversation likely invalid/missing. Creating a new one and retrying once...');
                     // Create conversation (only now)
                     const websiteContext = getWebsiteContext();
@@ -706,10 +802,16 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                     timestamp: data.assistant_message.created_at || new Date().toISOString(),
                     isStreaming: false
                 };
-                setMessages(prev => [...prev, assistantMessage]);
+                setMessages(prev => {
+                    const updated = [...prev, assistantMessage];
+                    if (testMode) {
+                        try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                    }
+                    return updated;
+                });
 
-                // Check if we should show rating prompt
-                if (data.show_rating) {
+                // Check if we should show rating prompt (only in non-test mode)
+                if (!testMode && data.show_rating) {
                     console.log('🌟 Rating prompt triggered!', {
                         conversationId: currentConversationId,
                         ratingMessage: data.rating_message
@@ -719,13 +821,29 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                 } else {
                     console.log('📝 No rating prompt in response');
                 }
+            } else if (data.response) {
+                // Test mode JSON response format
+                setIsTyping(false);
+                const assistantMessage = {
+                    message_type: 'assistant',
+                    content: data.response,
+                    timestamp: new Date().toISOString(),
+                    isStreaming: false
+                };
+                setMessages(prev => {
+                    const updated = [...prev, assistantMessage];
+                    if (testMode) {
+                        try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                    }
+                    return updated;
+                });
             } else {
                 console.warn('⚠️ No assistant message in response:', data);
             }
 
         } catch (error) {
             console.error('❌ Error sending message:', error);
-            
+
             // Add error message to UI
             const errorMessage = {
                 message_type: 'assistant',
@@ -733,29 +851,37 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
                 timestamp: new Date().toISOString(),
                 isError: true
             };
-            setMessages(prev => [...prev, errorMessage]);
+            setMessages(prev => {
+                const updated = [...prev, errorMessage];
+                if (testMode) {
+                    try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                }
+                return updated;
+            });
         } finally {
             setIsTyping(false);
         }
     };
 
     const clearChat = async () => {
-        if (!window.confirm('Are you sure you want to clear this chat? This will start a new conversation.')) {
+        if (!window.confirm(testMode ? 'Are you sure you want to clear this test chat?' : 'Are you sure you want to clear this chat? This will start a new conversation.')) {
             return;
         }
 
-        try {
-            // Mark current conversation as inactive if it exists
-            if (conversationId) {
-                const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
-                await fetch(`${baseURL}/conversations/${conversationId}/status`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'inactive' })
-                });
+        if (!testMode) {
+            try {
+                // Mark current conversation as inactive if it exists
+                if (conversationId) {
+                    const baseURL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
+                    await fetch(`${baseURL}/conversations/${conversationId}/status`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ status: 'inactive' })
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to mark conversation as inactive:', error);
             }
-        } catch (error) {
-            console.error('Failed to mark conversation as inactive:', error);
         }
 
         // Clear local state
@@ -766,10 +892,14 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
         }]);
         setConversationId(null);
         setInput('');
-        
+
         // Clear localStorage
-        const storageKey = getStorageKey();
-        localStorage.removeItem(storageKey);
+        if (testMode) {
+            try { localStorage.removeItem(getTestStorageKey()); } catch (e) {}
+        } else {
+            const storageKey = getStorageKey();
+            localStorage.removeItem(storageKey);
+        }
     };
 
     const handleKeyPress = (e) => {
@@ -793,7 +923,7 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
     }
 
     return (
-        <div className={`chat-widget-container ${themeConfig.position}`}>
+        <div className={`chat-widget-container ${themeConfig.position} ${testMode ? 'test-mode-widget' : ''}`}>
             {!isOpen && (
                 <button
                     className="chat-toggle-button"
@@ -806,18 +936,25 @@ const ChatWidget = ({ publicMode = false, chatbotId, conversationId: externalCon
             {isOpen && (
                 <div className="chat-window">
                     <div className="chat-header" style={{ background: themeConfig.primaryColor }}>
-                        <span>🤖 {chatbotInfo?.name || 'Assistant'}</span>
+                        <span>
+                            🤖 {chatbotInfo?.name || 'Assistant'}
+                            {testMode && <span className="test-mode-badge">🧪 Test</span>}
+                        </span>
                         <div className="header-actions">
                             <button
                                 className="clear-chat-button"
                                 onClick={clearChat}
-                                title="Clear Chat"
+                                title="Reset Chat"
+                                aria-label="Reset Chat"
                             >
-                                🧹
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                                    <path d="M3 3v5h5"/>
+                                </svg>
                             </button>
                             <button
                                 className="close-button"
-                                onClick={() => setIsOpen(false)}
+                                onClick={handleClose}
                             >
                                 ✕
                             </button>
