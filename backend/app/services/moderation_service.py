@@ -5,6 +5,11 @@ from flask import current_app
 import openai
 import json
 
+
+def _prompt_svc():
+    from .prompt_service import PromptService
+    return PromptService()
+
 # --- TIER 1: Custom profanity list (unchanged) ---
 custom_bad_words = ["hell", "fucked", "fucking", "fuck", "bitch", "shit", "asshole"]
 profanity.add_censor_words(custom_bad_words)
@@ -14,24 +19,29 @@ POLICY_VIOLATION_FALLBACK = "This question violates our safety policy regarding 
 PROFANITY_FALLBACK = "Your request could not be processed because it contains inappropriate language."
 MODERATION_FALLBACK = "Your request has been flagged as potentially harmful. Please rephrase your query."
 
+
 def _is_policy_violating(query: str) -> tuple[bool, str]:
     """
     TIER 0: Inappropriate Inquiry Policy Check
     This is the most important layer for catching nuanced, inappropriate intent.
     """
-    # For this critical reasoning task, we use a more powerful model.
-    provider = "openai"
-    model_name = "gpt-4o-mini"
-    
-    policy_prompt = f"""
-    You are an AI personal assistant that helps users with related queries.
-    You must ensure that all responses adhere to a strict safety policy.
-    POLICY: Do not answer if the vaulgar language is used in the query.
-    Analyze the user's query below. Your response MUST be a single, valid JSON object with two keys: "violates_policy" (boolean) and "reason" (string).
+    # Resolve the chat model from Super Admin's AiModel table (no hardcoded names).
+    try:
+        from .model_resolver import get_default_llm_model
+        resolved_model, resolved_provider = get_default_llm_model(provider="openai")
+    except Exception:  # noqa: BLE001
+        resolved_model, resolved_provider = None, None
 
-    USER QUERY: "{query}"
-    """
-    
+    if not resolved_model:
+        # No model configured - fail safe by blocking the request
+        current_app.logger.error("❌ Policy check skipped: no active AI model configured by Super Admin")
+        return True, "Safety policy check is unavailable right now. Please try again later."
+
+    provider = resolved_provider or "openai"
+    model_name = resolved_model
+
+    policy_prompt = _prompt_svc().render('moderation', query=query)
+
     try:
         response_str = current_app.llm_service.generate_answer(
             prompt=policy_prompt,
@@ -41,12 +51,12 @@ def _is_policy_violating(query: str) -> tuple[bool, str]:
         )
         cleaned_response = response_str.strip().replace("```json", "").replace("```", "")
         result = json.loads(cleaned_response)
-        
+
         if result.get("violates_policy") is True:
             reason = result.get("reason", "No reason provided.")
             current_app.logger.warning(f"POLICY VIOLATION DETECTED. Reason: {reason}. Query: '{query}'")
             return True, POLICY_VIOLATION_FALLBACK
-            
+
         return False, ""
     except Exception as e:
         current_app.logger.error(f"Error during policy check: {e}. Defaulting to safe (blocking request).")
@@ -72,7 +82,7 @@ def moderate_input_with_ai(text: str) -> str | None:
     try:
         client = openai.OpenAI(api_key=current_app.config['OPENAI_API_KEY'])
         response = client.moderations.create(input=text, model="text-moderation-stable")
-        
+
         result = response.results[0]
         if result.flagged:
             flagged_categories = [category for category, flagged in result.categories.__dict__.items() if flagged]

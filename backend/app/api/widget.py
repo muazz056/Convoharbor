@@ -1,8 +1,10 @@
+import os
 from flask import request, current_app, jsonify, g
 from flasgger import swag_from
 from . import api
 from ..decorators import login_required
 from ..models import Chatbot, Tenant
+
 
 @api.route('/widget/generate-script/<int:chatbot_id>', methods=['GET'])
 @login_required
@@ -71,9 +73,12 @@ def generate_widget_script(chatbot_id):
     # Public chat interface URL (frontend route to implement)
     chat_widget_url = f"{current_app.config['FRONTEND_URL']}/public/chat/{chatbot.id}"
 
+    # App slug used for DOM IDs / storage keys (derived from APP_NAME)
+    _app_slug = (os.environ.get('APP_NAME') or current_app.config.get('APP_NAME') or 'Convoharbor').lower()
+
     # Embeddable JavaScript snippet with website tracking (escape braces for f-string)
     script = f"""
-<div id=\"convopilot-widget-container\"></div>
+<div id=\"{_app_slug}-widget-container\"></div>
 <script>
     (function(){{
       function ready(fn){{ if(document.readyState!='loading'){{fn()}} else {{document.addEventListener('DOMContentLoaded', fn)}} }}
@@ -88,7 +93,7 @@ def generate_widget_script(chatbot_id):
           chatbot_id: {chatbot_id},
           timestamp: new Date().toISOString()
         }};
-        
+
         // Create iframe with website context
         var iframe = document.createElement('iframe');
         var contextParam = encodeURIComponent(JSON.stringify(websiteContext));
@@ -103,13 +108,13 @@ def generate_widget_script(chatbot_id):
         iframe.style.pointerEvents = 'auto';
         iframe.style.background = 'transparent';
         iframe.allow = 'clipboard-write;';
-        
+
         // Store context for session persistence
         if (typeof(Storage) !== \"undefined\") {{
-          sessionStorage.setItem('convopilot_website_context', JSON.stringify(websiteContext));
+          sessionStorage.setItem('{_app_slug}_website_context', JSON.stringify(websiteContext));
         }}
-        
-        (document.getElementById('convopilot-widget-container')||document.body).appendChild(iframe);
+
+        (document.getElementById('{_app_slug}-widget-container')||document.body).appendChild(iframe);
       }});
     }})();
 </script>

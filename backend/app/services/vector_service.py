@@ -1,6 +1,6 @@
 from flask import current_app
-from typing import Optional, List, Dict, Any
-from sqlalchemy import text, or_
+from typing import List, Dict, Any
+from sqlalchemy import text
 from .. import db
 from ..models.document_embedding import DocumentEmbedding, PGVECTOR_AVAILABLE
 
@@ -120,10 +120,59 @@ class VectorService:
                     DocumentEmbedding.meta_data[key].astext == str(value)
                 )
 
-        results = base_query.order_by(text('distance')).limit(top_k).all()
+        # === DIAGNOSTIC: log how many rows match the filter (before embedding
+        # null check, before ordering) so we can see if the filter itself is
+        # dropping everything.  We temporarily build a separate count query
+        # that mirrors every filter except the embed_col.isnot(None) clause.
+        try:
+            from sqlalchemy import func as _sa_func
+            count_q = db.session.query(_sa_func.count(DocumentEmbedding.id))
+            for key, value in filter_dict.items():
+                if key == 'provider':
+                    continue
+                if hasattr(DocumentEmbedding, key):
+                    count_q = count_q.filter(getattr(DocumentEmbedding, key) == value)
+                else:
+                    count_q = count_q.filter(
+                        DocumentEmbedding.meta_data[key].astext == str(value)
+                    )
+            total_matching_filter = count_q.scalar() or 0
+            with_embedding = count_q.filter(embed_col.isnot(None)).scalar() or 0
+            current_app.logger.info(
+                f"[VECTOR_QUERY] provider={provider} filter={dict((k,v) for k,v in filter_dict.items() if k != 'provider')} "
+                f"rows_matching_filter={total_matching_filter} rows_with_embedding={with_embedding}"
+            )
+        except Exception as diag_err:
+            current_app.logger.warning(f"[VECTOR_QUERY] diagnostic count failed: {diag_err}")
+
+        # Over-fetch so we can dedup BEFORE slicing to top_k.
+        # If duplicates exist (same doc_id+chunk_index), the dedup pass
+        # may shrink the result set, so we want headroom.
+        raw_limit = max(top_k * 3, top_k + 5)
+        raw_results = base_query.order_by(text('distance')).limit(raw_limit).all()
+
+        current_app.logger.info(
+            f"[VECTOR_QUERY] raw_results_count={len(raw_results)} provider={provider} top_k={top_k}"
+        )
+
+        # Deduplicate by (doc_id, chunk_index) keeping the best (smallest
+        # distance) match. This is what prevents the same chunk from being
+        # returned 4 times because the same chunk was ingested 4 times.
+        dedup: dict[tuple, tuple] = {}
+        for row, distance in raw_results:
+            key = (row.doc_id, row.chunk_index)
+            if key not in dedup or distance < dedup[key][1]:
+                dedup[key] = (row, distance)
+
+        # Sort by distance and slice to top_k.
+        ranked = sorted(dedup.values(), key=lambda pair: pair[1])[:top_k]
+
+        current_app.logger.info(
+            f"[VECTOR_QUERY] after_dedup={len(ranked)} top_scores={[round(max(0, 1-float(d)),3) for _,d in ranked[:3]]}"
+        )
 
         matches = []
-        for row, distance in results:
+        for row, distance in ranked:
             score = max(0.0, 1.0 - float(distance))
             embedding_openai = row.embedding_openai
             embedding_gemini = row.embedding_gemini
@@ -171,32 +220,55 @@ class VectorService:
                 embeddings_list = embedding_result.get("embeddings")
                 embed_provider = embedding_result.get("provider", "openai")
                 query_embedding = embeddings_list[0] if embeddings_list else None
+                embed_error = embedding_result.get("error")
+                current_app.logger.info(
+                    f"[VECTOR_SEARCH] query='{query[:60]}' chatbot_id={chatbot_id} "
+                    f"embed_provider={embed_provider} embed_dim={len(query_embedding) if query_embedding else 0} "
+                    f"error={embed_error}"
+                )
             except Exception as e:
-                current_app.logger.error(f"Failed to generate embedding: {e}")
+                current_app.logger.error(f"Failed to generate embedding: {e}", exc_info=True)
+                embed_error = str(e)
 
             if not query_embedding:
-                current_app.logger.warning("Failed to generate query embedding")
+                current_app.logger.warning(
+                    f"[VECTOR_SEARCH] NO QUERY EMBEDDING - retrieval will return 0 results. "
+                    f"check EMBEDDINGS_SERVICE_USE, OPENAI_API_KEY, GEMINI_API_KEY"
+                )
                 return []
 
-            # First try with chatbot_id filter
+            # Always filter by chatbot_id when one is provided. We do NOT
+            # fall back to a global search because that would let unrelated
+            # documents (from a different chatbot's KB, or older legacy
+            # embeddings) pollute the current chatbot's context.
             filter_dict = {"provider": embed_provider}
             if chatbot_id is not None:
                 filter_dict["chatbot_id"] = chatbot_id
 
             results = self.query(query_embedding, top_k=limit, filter_dict=filter_dict)
 
-            # Fallback: if no results with chatbot_id, try without it (for legacy embeddings)
+            # If 0 results with the active provider, try the OTHER provider
+            # as a courtesy fallback. This keeps older KBs (stored under
+            # 'openai') retrievable even if the active provider switched to
+            # 'gemini' (or vice versa).
             if not results and chatbot_id is not None:
+                fallback_provider = 'openai' if embed_provider != 'openai' else 'gemini'
                 current_app.logger.warning(
-                    f"Vector search found 0 results for chatbot_id={chatbot_id}, "
-                    f"trying fallback without chatbot_id filter"
+                    f"[VECTOR_SEARCH] 0 results with provider={embed_provider} - "
+                    f"trying fallback provider={fallback_provider}"
                 )
-                filter_dict_fallback = {"provider": embed_provider}
-                results = self.query(query_embedding, top_k=limit, filter_dict=filter_dict_fallback)
-                if results:
+                fallback_filter = {"provider": fallback_provider, "chatbot_id": chatbot_id}
+                fallback_results = self.query(query_embedding, top_k=limit, filter_dict=fallback_filter)
+                if fallback_results:
+                    results = fallback_results
                     current_app.logger.info(
-                        f"Fallback search found {len(results)} results (chatbot_id={chatbot_id} "
-                        f"embeddings may be missing chatbot_id)"
+                        f"[VECTOR_SEARCH] fallback provider={fallback_provider} returned {len(results)} results"
+                    )
+                else:
+                    current_app.logger.warning(
+                        f"[VECTOR_SEARCH] FALLBACK ALSO FAILED - 0 results with {fallback_provider} too. "
+                        f"DB has chunks for chatbot_id={chatbot_id} but neither provider's "
+                        f"embedding column has a matching vector. Re-upload the document or run repair."
                     )
 
             if redis_service:
@@ -209,9 +281,13 @@ class VectorService:
             current_app.logger.error(f"Error in search_similar: {e}", exc_info=True)
             return []
 
-    def add_vectors(self, vectors: List[Dict[str, Any]]):
+    def add_vectors(self, vectors: List[Dict[str, Any]], provider: str = None):
         if not vectors:
             return {"message": "No vectors to add."}
+
+        # Auto-detect provider from the first vector's metadata if not given
+        if provider is None:
+            provider = (vectors[0].get("metadata") or {}).get("provider", "openai")
 
         try:
             # Collect all vector IDs to check in one query
@@ -233,11 +309,41 @@ class VectorService:
                 chatbot_id = metadata.get("chatbot_id")
                 tenant_id = metadata.get("tenant_id")
 
+                # Defensive: if chatbot_id still missing, try to derive it
+                # from the DataSource row matching this doc_id.
+                if chatbot_id is None and doc_id and doc_id != "unknown-doc":
+                    try:
+                        from ..models.datasource import DataSource
+                        ds = DataSource.query.filter(
+                            DataSource.meta_data['doc_id'].astext == doc_id
+                        ).first() if False else None
+                        if ds is None:
+                            for cand in DataSource.query.all():
+                                if cand.meta_data and cand.meta_data.get('doc_id') == doc_id:
+                                    ds = cand
+                                    break
+                        if ds is not None:
+                            chatbot_id = ds.chatbot_id
+                            tenant_id = ds.tenant_id
+                            if not source or source == "unknown":
+                                source = ds.source_name
+                            metadata['chatbot_id'] = chatbot_id
+                            metadata['tenant_id'] = tenant_id
+                    except Exception:
+                        pass
+
                 existing = existing_by_vid.get(vector_id)
                 if existing:
                     existing.page_content = page_content
                     existing.meta_data = metadata
-                    existing.embedding_openai = embedding
+                    existing.provider = provider
+                    existing.chatbot_id = chatbot_id
+                    existing.tenant_id = tenant_id
+                    existing.source = source
+                    if provider == 'openai':
+                        existing.embedding_openai = embedding
+                    else:
+                        existing.embedding_gemini = embedding
                 else:
                     new_records.append({
                         'vector_id': vector_id,
@@ -248,9 +354,9 @@ class VectorService:
                         'source': source,
                         'chatbot_id': chatbot_id,
                         'tenant_id': tenant_id,
-                        'provider': 'openai',
-                        'embedding_openai': embedding,
-                        'embedding_gemini': None,
+                        'provider': provider,
+                        'embedding_openai': embedding if provider == 'openai' else None,
+                        'embedding_gemini': embedding if provider != 'openai' else None,
                     })
 
             if new_records:
@@ -258,7 +364,9 @@ class VectorService:
 
             db.session.commit()
             vectors_created = len(new_records) + len(existing_by_vid)
-            current_app.logger.info(f"Upserted {vectors_created} vectors to pgvector (add_vectors)")
+            current_app.logger.info(
+                f"Upserted {vectors_created} vectors to pgvector (add_vectors, provider={provider})"
+            )
             self._invalidate_vector_cache()
             return {"upserted_count": vectors_created}
         except Exception as e:

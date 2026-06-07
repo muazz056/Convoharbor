@@ -1,14 +1,14 @@
 from flask import request, current_app, jsonify, g
 from . import api
 from ..decorators import super_admin_required, tenant_admin_required, login_required
-from ..models import Tenant
+
 
 @api.route('/tenants', methods=['POST'])
 @super_admin_required
 def create_tenant():
     """Create a new tenant."""
     data = request.get_json()
-    
+
     # Validate required fields
     required_fields = ['name', 'domain', 'type', 'admin_email', 'admin_password']
     if not all(field in data for field in required_fields):
@@ -16,7 +16,7 @@ def create_tenant():
             'error': 'Missing required fields',
             'required': required_fields
         }), 400
-        
+
     try:
         tenant = current_app.tenant_service.create_tenant(
             name=data['name'],
@@ -25,7 +25,7 @@ def create_tenant():
             admin_email=data['admin_email'],
             admin_password=data['admin_password']
         )
-        
+
         return jsonify({
             'message': 'Tenant created successfully',
             'tenant': {
@@ -37,32 +37,33 @@ def create_tenant():
                 'status': tenant.status
             }
         }), 201
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-        
+
+
 @api.route('/tenants', methods=['GET'])
 @super_admin_required
 def list_tenants():
     """List all tenants with pagination and filtering."""
     page = request.args.get('page', 1, type=int)
     per_page = min(request.args.get('per_page', 20, type=int), 100)
-    
+
     # Get filter parameters
     filters = {}
     if 'type' in request.args:
         filters['type'] = request.args['type']
     if 'status' in request.args:
         filters['status'] = request.args['status']
-        
+
     pagination = current_app.tenant_service.list_tenants(
         page=page,
         per_page=per_page,
         filters=filters
     )
-    
+
     tenants = pagination.items
-    
+
     return jsonify({
         'tenants': [{
             'id': t.id,
@@ -80,7 +81,8 @@ def list_tenants():
             'per_page': pagination.per_page
         }
     })
-    
+
+
 @api.route('/tenants/<tenant_id>', methods=['GET'])
 @login_required
 def get_tenant(tenant_id):
@@ -88,11 +90,11 @@ def get_tenant(tenant_id):
     tenant = current_app.tenant_service.get_tenant(tenant_id)
     if not tenant:
         return jsonify({'error': 'Tenant not found'}), 404
-        
+
     # Only allow super admins or users from the same tenant
     if g.role != 'super_admin' and g.tenant_id != tenant.id:
         return jsonify({'error': 'Access denied'}), 403
-        
+
     return jsonify({
         'id': tenant.id,
         'tenant_id': tenant.tenant_id,
@@ -103,7 +105,8 @@ def get_tenant(tenant_id):
         'created_at': tenant.created_at.isoformat(),
         'config': tenant.config
     })
-    
+
+
 @api.route('/tenants/<tenant_id>', methods=['PUT'])
 @tenant_admin_required
 def update_tenant(tenant_id):
@@ -111,14 +114,14 @@ def update_tenant(tenant_id):
     tenant = current_app.tenant_service.get_tenant(tenant_id)
     if not tenant:
         return jsonify({'error': 'Tenant not found'}), 404
-        
+
     # Only allow super admins or admins from the same tenant
-    if (g.role != 'super_admin' and 
-        (g.tenant_id != tenant.id or g.role != 'tenant_admin')):
+    if (g.role != 'super_admin'
+            and (g.tenant_id != tenant.id or g.role != 'tenant_admin')):
         return jsonify({'error': 'Access denied'}), 403
-        
+
     data = request.get_json()
-    
+
     try:
         updated_tenant = current_app.tenant_service.update_tenant(tenant_id, data)
         return jsonify({
@@ -133,7 +136,8 @@ def update_tenant(tenant_id):
         })
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
-        
+
+
 @api.route('/tenants/<tenant_id>', methods=['DELETE'])
 @super_admin_required
 def delete_tenant(tenant_id):
@@ -141,5 +145,5 @@ def delete_tenant(tenant_id):
     success = current_app.tenant_service.delete_tenant(tenant_id)
     if not success:
         return jsonify({'error': 'Failed to delete tenant'}), 400
-        
+
     return jsonify({'message': 'Tenant deleted successfully'})

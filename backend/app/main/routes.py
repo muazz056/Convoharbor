@@ -1,13 +1,10 @@
-# Add these imports at the top
-from flask import request, jsonify, current_app
-from app.services import document_service, scraped_content_service
-from app.services import document_service, embedding_service, language_service, query_processor_service, history_service, moderation_service
+from flask import request, jsonify, current_app, render_template
+from app.services import document_service, embedding_service, query_processor_service, history_service, moderation_service, scraped_content_service
 from flasgger.utils import swag_from
 from functools import wraps
 
-# Your existing index route
-from flask import render_template
 from . import main
+
 
 @main.route('/')
 @swag_from({
@@ -25,10 +22,12 @@ def index():
 
 # --- ADD THE NEW ENDPOINT BELOW ---
 
+
 def allowed_file(filename):
     """Checks if a file's extension is in the allowed set."""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in current_app.config['ALLOWED_EXTENSIONS']
+
 
 def moderate_request(f):
     """
@@ -43,7 +42,7 @@ def moderate_request(f):
             # Skip redundant moderation - it's handled in the ultra-efficient pipeline
             current_app.logger.info("⚡ Skipping redundant moderation for ultra-efficient endpoint")
             return f(*args, **kwargs)
-        
+
         # Original moderation for other endpoints
         data = request.get_json()
         if not data or 'query' not in data:
@@ -51,12 +50,13 @@ def moderate_request(f):
 
         query = data['query']
         moderation_error = moderation_service.moderate_input_with_ai(query)
-        
+
         if moderation_error:
             return jsonify({"error": moderation_error}), 400
-            
+
         return f(*args, **kwargs)
     return decorated_function
+
 
 @main.route('/process-document', methods=['POST'])
 @swag_from({
@@ -153,7 +153,8 @@ def process_document_endpoint():
     except Exception as e:
         # Catch-all for unexpected errors in the service
         return jsonify({"error": "An internal error occurred during processing.", "details": str(e)}), 500
-    
+
+
 @main.route('/generate-embedding', methods=['POST'])
 @swag_from({
     'tags': ['Embedding'],
@@ -260,7 +261,7 @@ def generate_embedding_endpoint():
 
     # Extract just the text content to pass to the embedding service
     texts_to_embed = [chunk.get('page_content', '') for chunk in chunks]
-    
+
     # Filter out any empty strings that might result from missing 'page_content'
     if not any(texts_to_embed):
         return jsonify({"error": "No text content found in the provided chunks."}), 400
@@ -282,7 +283,7 @@ def generate_embedding_endpoint():
         if embeddings_list and i < len(embeddings_list):
             new_chunk["embeddings"][embed_provider] = embeddings_list[i]
         processed_chunks.append(new_chunk)
-    
+
     response_data = {
         "message": "Embeddings generated",
         "processed_chunks": processed_chunks,
@@ -290,6 +291,7 @@ def generate_embedding_endpoint():
     }
 
     return jsonify(response_data), 200
+
 
 @main.route('/conversation-feedback', methods=['POST'])
 @swag_from({
@@ -349,7 +351,7 @@ def generate_embedding_endpoint():
     'responses': {
         '201': {
             'description': 'Feedback successfully created and recorded.',
-            'schema': { 'type': 'object', 'properties': { 'message': {'type': 'string'} } }
+            'schema': {'type': 'object', 'properties': {'message': {'type': 'string'}}}
         },
         '400': {
             'description': 'Bad Request - Missing fields, invalid rating, or feedback already submitted.',
@@ -369,10 +371,10 @@ def conversation_feedback_endpoint():
 
     session_id = data.get('session_id')
     rating = data.get('rating')
-    
+
     if not session_id or not isinstance(rating, int):
         return jsonify({"error": "Missing or invalid 'session_id' or 'rating'."}), 400
-        
+
     if not (1 <= rating <= 5):
         return jsonify({"error": "Rating must be an integer between 1 and 5."}), 400
 
@@ -389,12 +391,13 @@ def conversation_feedback_endpoint():
         comment=comment,
         user_id=user_id
     )
-    
+
     if not success:
         status_code = 404 if "not found" in message.lower() else 400
         return jsonify({"error": message}), status_code
 
-    return jsonify({"message": message}), 201 # 201 Created is appropriate here
+    return jsonify({"message": message}), 201  # 201 Created is appropriate here
+
 
 @main.route('/process-scraped-content', methods=['POST'])
 @swag_from({
@@ -474,7 +477,7 @@ def process_scraped_content_endpoint():
     try:
         # Call the dedicated service to do the heavy lifting
         chunks = scraped_content_service.process_scraped_data(source_url, content)
-        
+
         # Convert LangChain Document objects to JSON-serializable dictionaries
         successful_chunks_json = [
             {"page_content": chunk.page_content, "metadata": chunk.metadata}
@@ -492,6 +495,7 @@ def process_scraped_content_endpoint():
         current_app.logger.error(f"Error processing scraped content from {source_url}: {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred during processing."}), 500
 
+
 @main.route('/upsert-chunks', methods=['POST'])
 @swag_from({
     'tags': ['Vector Storage & Retrieval'],
@@ -506,8 +510,8 @@ def process_scraped_content_endpoint():
             'schema': {
                 'type': 'object',
                 'properties': {
-                    'processed_chunks': { 'type': 'array', 'items': {'$ref': '#/definitions/EmbeddingChunk'} },
-                    'provider': { 'type': 'string', 'description': 'The embedding provider to use for the vectors (e.g., "openai" or "gemini"). Defaults to "openai".', 'example': 'openai' }
+                    'processed_chunks': {'type': 'array', 'items': {'$ref': '#/definitions/EmbeddingChunk'}},
+                    'provider': {'type': 'string', 'description': 'The embedding provider to use for the vectors (e.g., "openai" or "gemini"). Defaults to "openai".', 'example': 'openai'}
                 }
             }
         }
@@ -515,10 +519,10 @@ def process_scraped_content_endpoint():
     'responses': {
         '200': {
             'description': 'Chunks successfully upserted.',
-            'schema': { 'type': 'object', 'properties': { 'upserted_count': {'type': 'integer'} } }
+            'schema': {'type': 'object', 'properties': {'upserted_count': {'type': 'integer'}}}
         },
-        '400': { 'description': 'Bad Request - Invalid payload.', 'schema': {'$ref': '#/definitions/Error'} },
-        '503': { 'description': 'Service Unavailable - Vector DB service is not initialized.', 'schema': {'$ref': '#/definitions/Error'} }
+        '400': {'description': 'Bad Request - Invalid payload.', 'schema': {'$ref': '#/definitions/Error'}},
+        '503': {'description': 'Service Unavailable - Vector DB service is not initialized.', 'schema': {'$ref': '#/definitions/Error'}}
     }
 })
 def upsert_chunks():
@@ -529,7 +533,7 @@ def upsert_chunks():
     data = request.get_json()
     if not data or 'processed_chunks' not in data:
         return jsonify({"error": "Missing 'processed_chunks' in request body"}), 400
-    
+
     chunks = data['processed_chunks']
     provider = data.get('provider', 'openai')
 
@@ -627,8 +631,8 @@ def upsert_chunks():
                 },
                 'model': {
                     'type': 'string',
-                    'description': "Specific model to use for generation (e.g., 'gpt-4o-mini').",
-                    'example': 'gpt-4o'
+                    'description': "Specific model to use for generation. Must be an active model configured by Super Admin in the AI Models page.",
+                    'example': '<configured-model-name>'
                 },
                 'top_k': {
                     'type': 'integer',
@@ -652,7 +656,7 @@ def upsert_chunks():
                 'filter': {
                     'type': 'object',
                     'description': "Optional metadata filter to restrict document search.",
-                    'example': { "source": "Hasnain_Ali_AI_ML_Engineer_Resume.docx.pdf" }
+                    'example': {"source": "Hasnain_Ali_AI_ML_Engineer_Resume.docx.pdf"}
                 }
             }
         },
@@ -686,13 +690,13 @@ def upsert_chunks():
         'SourceDocument': {
             'type': 'object',
             'properties': {
-                'source': { 'type': 'string' },
-                'score': { 'type': 'number' }
+                'source': {'type': 'string'},
+                'score': {'type': 'number'}
             }
         },
         'Error': {
             'type': 'object',
-            'properties': { 'error': { 'type': 'string' } }
+            'properties': {'error': {'type': 'string'}}
         }
     }
 })
@@ -700,11 +704,11 @@ def query_rag_endpoint():
     """
     🚀 ULTRA-OPTIMIZED RAG PIPELINE
     Reduces LLM calls from ~10 to ~3 while maintaining exact same functionality.
-    
+
     OLD PIPELINE (10 LLM calls):
     1. Policy moderation check
     2. Intent detection
-    3. Query rewriting  
+    3. Query rewriting
     4. Language detection
     5. Query analysis
     6. HyDE generation
@@ -712,7 +716,7 @@ def query_rag_endpoint():
     8. Final answer generation
     9. Answer translation
     10. Concluding phrase translation
-    
+
     NEW PIPELINE (3 LLM calls):
     1. Ultra-efficient query analysis (combines 6 operations)
     2. Query rewriting (only if needed)
@@ -720,7 +724,7 @@ def query_rag_endpoint():
     """
     import time
     pipeline_start = time.time()
-    
+
     # Parse and validate request
     data = request.get_json()
     if not data or 'query' not in data:
@@ -769,11 +773,11 @@ def query_rag_endpoint():
 
     try:
         current_app.logger.info("🚀 ULTRA-OPTIMIZED RAG PIPELINE START")
-        
+
         # === STAGE 1: ULTRA-FAST QUERY ANALYSIS ===
         # Use user's specified model for analysis (respecting their choice)
         analysis_start = time.time()
-        
+
         query_analysis = query_processor_service.ultra_efficient_query_analysis(
             query=user_query,
             provider=llm_provider,
@@ -781,12 +785,12 @@ def query_rag_endpoint():
             session_id=session_id,
             user_id=user_id
         )
-        
+
         # Safety check from the analysis
         if not query_analysis.get('is_safe', True):
             safety_reason = query_analysis.get('safety_reason', 'Content policy violation')
             current_app.logger.warning(f"🚫 Query blocked: {safety_reason}")
-            
+
             # Professional response for content policy violations
             professional_safety_response = {
                 "answer": "I'm here to provide helpful and respectful assistance. Let me know how I can help you with information or questions that align with our community guidelines.",
@@ -803,7 +807,7 @@ def query_rag_endpoint():
                 }
             }
             return jsonify(professional_safety_response), 200
-        
+
         # Extract analysis results
         detected_lang = query_analysis.get('original_lang', 'en')
         english_query = query_analysis.get('english_query', user_query)
@@ -813,16 +817,16 @@ def query_rag_endpoint():
             "complexity": query_analysis.get('complexity', 'moderate')
         }
         query_for_embedding = query_analysis.get('query_for_embedding', english_query)
-        
+
         analysis_time = time.time() - analysis_start
         current_app.logger.info(f"⚡ Fast analysis completed in {analysis_time:.2f}s")
 
         # === STAGE 2: ULTRA-FAST CONTEXT & HISTORY (OPTIMIZED) ===
         context_start = time.time()
-        
+
         # Smart conversation handling - ALWAYS get history if session_id provided
         conversation_obj = history_service.get_or_create_conversation(session_id, user_id)
-        
+
         # Critical: Always retrieve history when session_id is provided for conversation continuity
         if session_id and conversation_obj:
             chat_history = history_service.get_recent_history(conversation_obj, limit=5)
@@ -835,39 +839,39 @@ def query_rag_endpoint():
             current_app.logger.info("🆕 New conversation - no history to retrieve")
             current_app.logger.info(f"🔍 DEBUG - Session ID provided: {session_id}")
             current_app.logger.info(f"🔍 DEBUG - Conversation object: {conversation_obj}")
-        
+
         standalone_query = english_query
-        
+
         # Only rewrite if we have history AND it's a complex conversational query
         if chat_history and classification.get('intent') not in ['end_conversation', 'gratitude']:
             # Always rewrite when we have history to maintain conversation context
             original_query = standalone_query
             standalone_query = query_processor_service.rewrite_query_with_history(
-                chat_history, 
-                english_query, 
-                provider=llm_provider, 
+                chat_history,
+                english_query,
+                provider=llm_provider,
                 model_name=model_name
             )
             current_app.logger.info(f"🔄 Query rewritten with history context using {llm_provider}:{model_name}")
             current_app.logger.info(f"🔍 DEBUG - Original: '{original_query}' → Rewritten: '{standalone_query}'")
         else:
             current_app.logger.info(f"🔍 DEBUG - No query rewriting: history={bool(chat_history)}, intent={classification.get('intent')}")
-        
+
         context_time = time.time() - context_start
         current_app.logger.info(f"⚡ Context processing completed in {context_time:.2f}s")
 
         # === STAGE 3: SUPER-FAST EMBEDDING + VECTOR SEARCH ===
         retrieval_start = time.time()
-        
+
         # Optimize embedding generation - use simpler query for simple questions
         if classification.get('complexity') == 'simple':
             # For simple queries, use just the English query (skip HyDE)
             embedding_query = english_query
         else:
             embedding_query = query_for_embedding
-        
+
         embedding_results = embedding_service.generate_embeddings_for_texts(texts=[embedding_query])
-        
+
         embed_error = embedding_results.get("error")
         embeddings_list = embedding_results.get("embeddings")
         if embed_error or not embeddings_list or not embeddings_list[0]:
@@ -885,18 +889,18 @@ def query_rag_endpoint():
             optimized_top_k = min(top_k, 2)  # Even fewer sources for simple queries
         else:
             optimized_top_k = min(top_k, 4)  # Reduce max sources
-        
+
         query_filter = metadata_filter or {}
         query_filter['provider'] = embed_provider
         retrieved_contexts = current_app.vector_service.query(
-            query_embedding=query_embedding, 
-            top_k=optimized_top_k, 
+            query_embedding=query_embedding,
+            top_k=optimized_top_k,
             filter_dict=query_filter
         )
-        
+
         retrieval_time = time.time() - retrieval_start
         current_app.logger.info(f"⚡ Retrieval completed in {retrieval_time:.2f}s")
-        
+
         # Handle no results gracefully
         if not retrieved_contexts:
             if detected_lang == 'en':
@@ -909,12 +913,12 @@ def query_rag_endpoint():
                     target_lang=detected_lang,
                     mode=mode,
                     provider=llm_provider,
-                    model_name=model_name, # Use the user's specified model
+                    model_name=model_name,  # Use the user's specified model
                     user_attributes={"expertise": user_role, "permission": "user", "intent": "no_info"},
                     session_id=session_id,
                     user_id=user_id
                 )
-            
+
             professional_no_results = {
                 "answer": no_results_msg,
                 "classification": classification,
@@ -930,12 +934,12 @@ def query_rag_endpoint():
         # === STAGE 5: DETERMINE IF RETRIEVAL WAS SUCCESSFUL ===
         was_retrieval_successful = False
         base_threshold = current_app.config.get('RETRIEVAL_SCORE_THRESHOLD', 0.4)
-        
+
         # Use more lenient threshold for conversational queries that were rewritten
-        is_rewritten_query = (chat_history and 
-                            classification.get('intent') not in ['end_conversation', 'gratitude'] and
-                            standalone_query != english_query)
-        
+        is_rewritten_query = (chat_history
+                              and classification.get('intent') not in ['end_conversation', 'gratitude']
+                              and standalone_query != english_query)
+
         # More aggressive threshold reduction for rewritten conversational queries
         if is_rewritten_query:
             # 50% lower threshold for conversational queries to account for semantic shifts
@@ -943,11 +947,11 @@ def query_rag_endpoint():
             current_app.logger.info(f"🔗 Applied conversational threshold reduction: {base_threshold:.3f} → {threshold:.3f}")
         else:
             threshold = base_threshold
-        
+
         if retrieved_contexts:
             top_score = retrieved_contexts[0].get('score', 0.0)
             current_app.logger.info(f"🎯 Retrieval scoring: top_score={top_score:.3f}, threshold={threshold:.3f}, is_rewritten={is_rewritten_query}")
-            
+
             # Primary check with threshold
             if top_score > threshold:
                 was_retrieval_successful = True
@@ -960,7 +964,7 @@ def query_rag_endpoint():
             current_app.logger.info(
                 f"OUT_OF_SCOPE_QUERY: session_id='{conversation_obj.session_id}', query='{user_query}', top_score={retrieved_contexts[0].get('score', 0.0) if retrieved_contexts else 'no_results'}, threshold={threshold:.3f}"
             )
-            
+
             # Professional response for out-of-scope queries in strict mode
             if detected_lang == 'en':
                 out_of_scope_msg = "I checked my knowledge base but couldn't find reliable information about this specific topic. I want to make sure I provide you with accurate information, so could you try asking about something else I might be able to help with?"
@@ -972,12 +976,12 @@ def query_rag_endpoint():
                     target_lang=detected_lang,
                     mode="permissive",  # Use permissive for this guidance message
                     provider=llm_provider,
-                    model_name=model_name, # Use the user's specified model
+                    model_name=model_name,  # Use the user's specified model
                     user_attributes={"expertise": user_role, "permission": "user", "intent": "out_of_scope"},
                     session_id=session_id,
                     user_id=user_id
                 )
-            
+
             professional_out_of_scope = {
                 "answer": out_of_scope_msg,
                 "classification": classification,
@@ -992,7 +996,7 @@ def query_rag_endpoint():
 
         # === STAGE 4: LIGHTNING-FAST FINAL GENERATION ===
         generation_start = time.time()
-        
+
         # Aggressive context optimization based on complexity
         if classification.get('complexity') == 'simple':
             # For simple queries, use minimal context
@@ -1003,14 +1007,14 @@ def query_rag_endpoint():
         else:
             # For complex queries, use more context but still limited
             context_text = "\n\n".join([ctx.get('page_content', '')[:800] for ctx in retrieved_contexts])
-        
+
         # User attributes for personalized response
         user_attributes = {
             "permission": "user",
             "expertise": user_role,
             "intent": classification.get('intent', 'default')
         }
-        
+
         # Optimize temperature and model for faster generation
         if classification.get('complexity') == 'simple':
             # Use even faster model for simple queries
@@ -1020,7 +1024,7 @@ def query_rag_endpoint():
             # Use original model for complex queries
             final_model = model_name
             optimized_temperature = min(temperature, 0.2)
-        
+
         # Single call that generates final answer with translation if needed
         final_answer = query_processor_service.ultra_efficient_final_generation(
             context=context_text,
@@ -1034,13 +1038,13 @@ def query_rag_endpoint():
             session_id=session_id,
             user_id=user_id
         )
-        
+
         generation_time = time.time() - generation_start
         current_app.logger.info(f"⚡ Final generation completed in {generation_time:.2f}s")
 
         # === STAGE 5: ASYNC SAVE & RESPONSE (NON-BLOCKING) ===
         save_start = time.time()
-        
+
         # Save conversation in background (don't wait for it)
         try:
             current_app.logger.info(f"💾 DEBUG - Saving conversation: user_query='{user_query[:50]}...', conversation_id={conversation_obj.id}")
@@ -1057,17 +1061,17 @@ def query_rag_endpoint():
             current_app.logger.error(f"💾 DEBUG - Save failed: {str(e)}")
             assistant_message_id = "temp_id"
             session_expires_at = "2025-12-31T23:59:59Z"
-        
+
         source_documents = [
-            {"source": ctx['metadata'].get('source'), "score": ctx.get('score')} 
+            {"source": ctx['metadata'].get('source'), "score": ctx.get('score')}
             for ctx in retrieved_contexts
         ]
-        
+
         save_time = time.time() - save_start
         total_time = time.time() - pipeline_start
-        
+
         current_app.logger.info(f"⚡ LIGHTNING-FAST pipeline completed in {total_time:.2f}s (Analysis: {analysis_time:.2f}s, Context: {context_time:.2f}s, Retrieval: {retrieval_time:.2f}s, Generation: {generation_time:.2f}s, Save: {save_time:.2f}s)")
-        
+
         response_data = {
             "answer": final_answer,
             "sources": source_documents,
@@ -1080,7 +1084,7 @@ def query_rag_endpoint():
                 "llm_calls": 2 if classification.get('complexity') != 'simple' else 1,  # Even fewer for simple queries
                 "stages": {
                     "analysis": f"{analysis_time:.2f}s",
-                    "context": f"{context_time:.2f}s", 
+                    "context": f"{context_time:.2f}s",
                     "retrieval": f"{retrieval_time:.2f}s",
                     "generation": f"{generation_time:.2f}s",
                     "save": f"{save_time:.2f}s"
@@ -1092,13 +1096,13 @@ def query_rag_endpoint():
     except Exception as e:
         import traceback
         error_time = time.time() - pipeline_start
-        
+
         # Get the full stack trace
         stack_trace = traceback.format_exc()
-        
+
         current_app.logger.error(f"❌ Pipeline error after {error_time:.2f}s: {e}", exc_info=True)
         current_app.logger.error(f"🔍 Full stack trace:\n{stack_trace}")
-        
+
         return jsonify({
             "error": "An internal error occurred while processing your query.",
             "details": str(e),
@@ -1106,7 +1110,8 @@ def query_rag_endpoint():
             "time_elapsed": f"{error_time:.2f}s",
             "stack_trace": stack_trace if current_app.debug else None
         }), 500
-    
+
+
 @main.route('/delete-document', methods=['POST'])
 @swag_from({
     'tags': ['Document Management'],
@@ -1170,9 +1175,9 @@ def delete_document_endpoint():
         return jsonify({"error": "Missing 'source' field in request body."}), 400
 
     source_filename = data['source']
-    
+
     if not current_app.vector_service:
-         return jsonify({"error": "Vector DB service is not initialized."}), 503
+        return jsonify({"error": "Vector DB service is not initialized."}), 503
 
     try:
         result = current_app.vector_service.delete_by_source(source_filename)
@@ -1180,7 +1185,8 @@ def delete_document_endpoint():
     except Exception as e:
         current_app.logger.error(f"Error during document deletion for source '{source_filename}': {e}", exc_info=True)
         return jsonify({"error": "An internal error occurred during the deletion process."}), 500
-    
+
+
 @main.route('/history', methods=['GET'])
 @swag_from({
     'tags': ['Conversation History'],
@@ -1267,6 +1273,7 @@ def get_history_endpoint():
         # It's not an error if a user has no sessions, just return an empty list.
         return jsonify(sessions), 200
 
+
 @main.route('/sessions', methods=['GET'])
 @swag_from({
     'tags': ['Session Management'],
@@ -1317,17 +1324,16 @@ def list_sessions():
     try:
         user_id = request.args.get('user_id')
         limit = int(request.args.get('limit', 20))
-        
+
         # Get sessions from history service
         sessions = history_service.get_recent_sessions(user_id=user_id, limit=limit)
-        
+
         current_app.logger.info(f"📋 Listed {len(sessions)} sessions")
         return jsonify({"sessions": sessions}), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"❌ Failed to list sessions: {e}")
         return jsonify({
             "error": "Failed to retrieve sessions",
             "message": str(e)
         }), 500
-

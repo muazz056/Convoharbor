@@ -27,4 +27,9 @@ def rate_limit(max_requests: int = 120, window_seconds: int = 60):
     return decorator
 
 
-from . import auth, tenants, users, chatbots, datasources, usage_stats, debug, conversations, widget, analytics, notifications, ai_models, general_chat, jit_access
+# Import route modules after Blueprint is defined to avoid circular imports
+from . import (  # noqa: E402,F401
+    auth, tenants, users, chatbots, datasources, usage_stats, debug,
+    conversations, widget, analytics, notifications, ai_models,
+    general_chat, jit_access
+)

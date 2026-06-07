@@ -5,6 +5,9 @@ import eventlet
 
 # Monkey patch for WebSocket support
 eventlet.monkey_patch()
+
+import logging
+from logging.handlers import RotatingFileHandler
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -12,8 +15,6 @@ from flask_cors import CORS
 from flask_mail import Mail
 from flasgger import Swagger
 from .config import config
-from logging.handlers import RotatingFileHandler
-import logging
 
 # Services will be imported inside create_app to avoid circular imports
 
@@ -24,10 +25,11 @@ mail = Mail()
 
 # Services will be initialized in create_app function to avoid circular imports
 
+
 def create_app(config_name='default'):
     """Application factory function."""
     app = Flask(__name__)
-    
+
     # CORS will be configured later after config is loaded
 
     # Load configuration
@@ -43,8 +45,14 @@ def create_app(config_name='default'):
     app.unanswered_logger = logging.getLogger('unanswered_queries')
     app.unanswered_logger.addHandler(file_handler)
     app.unanswered_logger.setLevel(logging.INFO)
-    
+
     # Configure Flasgger Swagger UI
+    _app_name = os.environ.get('APP_NAME') or app.config.get('APP_NAME') or 'Convoharbor'
+    _backend_url = os.environ.get('BACKEND_URL') or app.config.get('BACKEND_URL') or 'http://localhost:5001'
+    # Derive host from BACKEND_URL (strip protocol)
+    _backend_host = _backend_url.replace('http://', '').replace('https://', '').rstrip('/')
+    _scheme = 'https' if _backend_url.startswith('https://') else 'http'
+
     swagger_config = {
         "headers": [],
         "specs": [
@@ -58,40 +66,40 @@ def create_app(config_name='default'):
         "static_url_path": "/flasgger_static",
         "swagger_ui": True,
         "specs_route": "/docs/",
-        "title": "ConvoPilot Multi-Tenant API",
+        "title": f"{_app_name} Multi-Tenant API",
         "version": "1.0.0",
         "description": "This API provides a secure, multi-tenant platform for managing AI chatbots, document processing, and conversations.",
         "termsOfService": "",
         "contact": {
-            "name": "ConvoPilot Support",
-            "url": "https://convopilot.com/support",
-            "email": "support@convopilot.com"
+            "name": f"{_app_name} Support",
+            "url": f"https://{_app_name.lower()}.com/support",
+            "email": f"support@{_app_name.lower()}.com"
         },
         "license": {
             "name": "Proprietary",
-            "url": "https://convopilot.com/license"
+            "url": f"https://{_app_name.lower()}.com/license"
         }
     }
-    
+
     swagger_template = {
         "swagger": "2.0",
         "info": {
-            "title": "ConvoPilot Multi-Tenant API",
+            "title": f"{_app_name} Multi-Tenant API",
             "description": "This API provides a secure, multi-tenant platform for managing AI chatbots, document processing, and conversations.",
             "contact": {
-                "name": "ConvoPilot Support",
-                "url": "https://convopilot.com/support",
-                "email": "support@convopilot.com"
+                "name": f"{_app_name} Support",
+                "url": f"https://{_app_name.lower()}.com/support",
+                "email": f"support@{_app_name.lower()}.com"
             },
             "license": {
                 "name": "Proprietary",
-                "url": "https://convopilot.com/license"
+                "url": f"https://{_app_name.lower()}.com/license"
             },
             "version": "1.0.0"
         },
-        "host": "127.0.0.1:5001",
+        "host": _backend_host,
         "basePath": "/api/v1",
-        "schemes": ["http"],
+        "schemes": [_scheme],
         "securityDefinitions": {
             "Bearer": {
                 "type": "apiKey",
@@ -119,10 +127,10 @@ def create_app(config_name='default'):
     db.init_app(app)
     migrate.init_app(app, db)
     mail.init_app(app)
-    
+
     # Initialize CORS with dynamic origin from config
     # The origin must be in a list, even if it's just one.
-    CORS(app, 
+    CORS(app,
          resources={r"/api/*": {"origins": [app.config.get('FRONTEND_URL')]}},
          supports_credentials=True)
 
@@ -183,13 +191,18 @@ def create_app(config_name='default'):
             app.prompt_service = PromptService()
 
             class EmbeddingServiceWrapper:
-                def generate_embeddings_for_texts(self, texts):
-                    return generate_embeddings_for_texts(texts)
+                def generate_embeddings_for_texts(self, texts, on_batch_start=None, on_batch_done=None):
+                    return generate_embeddings_for_texts(
+                        texts,
+                        on_batch_start=on_batch_start,
+                        on_batch_done=on_batch_done,
+                    )
 
             app.embedding_service = EmbeddingServiceWrapper()
 
             websocket_service.socketio.init_app(app)
             app.websocket_service = websocket_service
+            app.socketio = websocket_service.socketio
 
             app.intent_analysis_service = IntentAnalysisService()
 
@@ -215,18 +228,42 @@ def create_app(config_name='default'):
     # Register blueprints
     from .main import main as main_blueprint
     from .api import api as api_blueprint
-    
+
     # Register blueprints with URL prefixes
     app.register_blueprint(main_blueprint, url_prefix='/api/v1')
     # Register API blueprint with /api/v1 prefix to match Swagger docs
     app.register_blueprint(api_blueprint, url_prefix='/api/v1')
-    
+
     # Register CLI commands
     from .cli_commands import seed_ai_models_command, list_ai_models_command
     app.cli.add_command(seed_ai_models_command)
     app.cli.add_command(list_ai_models_command)
 
+    # Register the stuck-data-source watchdog. On startup (and on every
+    # call to /api/v1/admin/datasources/sweep) we mark any DataSource
+    # that has been in 'processing' / 'pending' for too long as 'failed'
+    # so the UI does not get stuck on "uploading…" forever.
+    _sweep_and_log(app)
+
     return app
 
+
+def _sweep_and_log(app):
+    """Run the stuck-data-source sweep once at startup."""
+    try:
+        # Import lazily so this module can finish loading even if the
+        # datasources blueprint isn't imported yet at app construction.
+        from .api.datasources import sweep_stuck_data_sources
+        with app.app_context():
+            result = sweep_stuck_data_sources(max_age_seconds=600)
+            if result.get('marked_failed', 0) > 0:
+                app.logger.warning(
+                    f"🧹 Startup sweep: marked {result['marked_failed']} "
+                    f"stuck data source(s) as 'failed'"
+                )
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning(f"Startup data-source sweep skipped: {e}")
+
+
 # Import models here to make them accessible for Flask-Migrate
-from . import models
+from . import models  # noqa: E402,F401

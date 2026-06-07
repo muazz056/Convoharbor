@@ -1,21 +1,23 @@
+import os
 from flask import request, current_app, jsonify, g, redirect, url_for
-from flasgger import swag_from
 from datetime import datetime, timedelta
-import json
 import uuid
 import re
 import secrets
-from datetime import datetime, timedelta
-from urllib.parse import urlencode
 from requests_oauthlib import OAuth2Session
 
-from flask import request, jsonify, redirect, url_for, current_app, g
 from ..models import User, Tenant
 from .. import db
 from . import api
 from ..decorators import login_required
 from flasgger.utils import swag_from
 from ..services.email_service import send_confirmation_email
+
+
+def _get_app_slug():
+    """Get the app slug for tenant domains (lowercased, alphanumeric)."""
+    name = os.environ.get('APP_NAME') or current_app.config.get('APP_NAME') or 'Convoharbor'
+    return name.lower()
 
 
 def validate_password_strength(password):
@@ -31,6 +33,7 @@ def validate_password_strength(password):
     if not re.search(r'[!@#$%^&*(),.?":{}|<>_-]', password):
         errors.append("a special character")
     return errors
+
 
 AUTHORIZATION_BASE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://www.googleapis.com/oauth2/v4/token"
@@ -115,7 +118,7 @@ def google_callback():
 
     # Replace http with https for oauthlib validation (local dev workaround)
     authorization_response = request.url.replace('http://', 'https://')
-    token = google.fetch_token(
+    google.fetch_token(
         TOKEN_URL,
         client_secret=current_app.config['GOOGLE_CLIENT_SECRET'],
         authorization_response=authorization_response
@@ -134,8 +137,8 @@ def google_callback():
         oauth_tenant = Tenant(
             name=f"{user_info.get('given_name', 'Admin')} {user_info.get('family_name', 'User')}'s Organization",
             tenant_id=unique_tenant_id,
-            domain=f"{email.split('@')[0]}.convopilot.com",
-            type="convopilot"
+            domain=f"{email.split('@')[0]}.{_get_app_slug()}.com",
+            type=_get_app_slug()
         )
         db.session.add(oauth_tenant)
         db.session.commit()
@@ -248,8 +251,8 @@ def signup():
         admin_tenant = Tenant(
             name=f"{data.get('first_name', 'Admin')} {data.get('last_name', 'User')}'s Organization",
             tenant_id=unique_tenant_id,
-            domain=f"{data['email'].split('@')[0]}.convopilot.com",
-            type="convopilot"
+            domain=f"{data['email'].split('@')[0]}.{_get_app_slug()}.com",
+            type=_get_app_slug()
         )
         db.session.add(admin_tenant)
         db.session.commit()

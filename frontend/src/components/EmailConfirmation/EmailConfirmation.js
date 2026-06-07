@@ -3,6 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import './EmailConfirmation.css';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
+const FRONTEND_URL = process.env.REACT_APP_FRONTEND_URL || (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+
 const EmailConfirmation = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -11,7 +14,10 @@ const EmailConfirmation = () => {
   const [message, setMessage] = useState('');
   const [retryCount, setRetryCount] = useState(0);
   const [userEmail, setUserEmail] = useState('');
-  
+  const [resendEmail, setResendEmail] = useState('');
+  const [resendStatus, setResendStatus] = useState('idle'); // idle, sending, sent, error
+  const [resendMessage, setResendMessage] = useState('');
+
   const isConfirming = useRef(false);
 
   useEffect(() => {
@@ -25,16 +31,16 @@ const EmailConfirmation = () => {
     const confirmEmail = async () => {
       try {
         console.log('Confirming email with token:', token);
-        
+
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-        
-        const response = await fetch(`http://127.0.0.1:5001/api/v1/auth/confirm-email/${encodeURIComponent(token)}`, {
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+        const response = await fetch(`${API_URL}/auth/confirm-email/${encodeURIComponent(token)}`, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
-            'Origin': 'http://localhost:3000'
+            'Origin': FRONTEND_URL
           },
           mode: 'cors',
           credentials: 'include',
@@ -50,31 +56,24 @@ const EmailConfirmation = () => {
           setStatus('success');
           setMessage(data.message || 'Email confirmed successfully! Redirecting to dashboard...');
           setUserEmail(data.user?.email || '');
-          
-          // If we got a token and user data, log in automatically
+
           if (data.token && data.user) {
             console.log('Logging in with token and user data');
-            // Use the auth context to log in
             login(data.token, data.user);
-            
-            // Redirect to chatbot dashboard after 2 seconds
             setTimeout(() => {
               navigate('/chatbot');
             }, 2000);
           } else {
-            // Fallback to login if no token
             setMessage('Email confirmed successfully! Please log in.');
             setTimeout(() => {
               navigate('/login');
             }, 3000);
           }
         } else if (response.status === 400 && data.message?.toLowerCase().includes('expired')) {
-          // Handle expired token
           setStatus('expired');
           setMessage('Your confirmation link has expired. Please request a new one.');
           setUserEmail(data.email || '');
         } else if (response.status === 400 && data.message?.toLowerCase().includes('invalid')) {
-          // Handle invalid token
           setStatus('error');
           setMessage('This confirmation link is invalid or has already been used.');
         } else {
@@ -84,7 +83,7 @@ const EmailConfirmation = () => {
         }
       } catch (error) {
         console.error('Error during confirmation:', error);
-        
+
         if (error.name === 'AbortError') {
           setStatus('error');
           setMessage('The confirmation request timed out. Please check your connection and try again.');
@@ -104,7 +103,7 @@ const EmailConfirmation = () => {
         isConfirming.current = false;
       });
     }
-  }, [searchParams, navigate, status]);
+  }, [searchParams, navigate, status, login]);
 
   const handleRetry = () => {
     if (retryCount < 3) {
@@ -117,27 +116,35 @@ const EmailConfirmation = () => {
     }
   };
 
-  const requestNewConfirmation = async () => {
-    try {
-      const email = userEmail || prompt('Please enter your email address:');
-      if (!email) return;
+  const requestNewConfirmation = async (e) => {
+    if (e) e.preventDefault();
+    const email = (resendEmail || userEmail || '').trim().toLowerCase();
+    if (!email) {
+      setResendStatus('error');
+      setResendMessage('Please enter your email address.');
+      return;
+    }
 
-      const response = await fetch('http://127.0.0.1:5001/api/v1/auth/resend-confirmation', {
+    setResendStatus('sending');
+    setResendMessage('');
+    try {
+      const response = await fetch(`${API_URL}/auth/resend-confirmation`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
-        setMessage('A new confirmation email has been sent. Please check your inbox.');
+        setResendStatus('sent');
+        setResendMessage('A new confirmation email has been sent. Please check your inbox.');
       } else {
-        setMessage(data.error || 'Failed to send confirmation email. Please try again.');
+        setResendStatus('error');
+        setResendMessage(data.error || 'Failed to send confirmation email. Please try again.');
       }
     } catch (error) {
-      setMessage('Network error. Please check your connection and try again.');
+      setResendStatus('error');
+      setResendMessage('Network error. Please check your connection and try again.');
     }
   };
 
@@ -151,7 +158,7 @@ const EmailConfirmation = () => {
             <p>Please wait while we confirm your email address.</p>
           </>
         )}
-        
+
         {status === 'success' && (
           <>
             <div className="success-icon">✓</div>
@@ -162,50 +169,93 @@ const EmailConfirmation = () => {
             </p>
           </>
         )}
-        
+
         {status === 'expired' && (
           <>
             <div className="warning-icon">⏰</div>
             <h2>Link Expired</h2>
             <p>{message}</p>
-            <div className="button-group">
-              <button 
-                className="primary-button"
-                onClick={requestNewConfirmation}
-              >
-                Send New Link
-              </button>
-              <button 
-                className="secondary-button"
-                onClick={() => navigate('/login')}
-              >
-                Go to Login
-              </button>
-            </div>
+            <form onSubmit={requestNewConfirmation} className="resend-form">
+              <label htmlFor="resend-email">Email Address</label>
+              <input
+                id="resend-email"
+                type="email"
+                value={resendEmail || userEmail}
+                onChange={(e) => setResendEmail(e.target.value)}
+                placeholder="name@example.com"
+                required
+              />
+              {resendMessage && (
+                <div className={`resend-msg resend-msg-${resendStatus}`}>
+                  {resendMessage}
+                </div>
+              )}
+              <div className="button-group">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={resendStatus === 'sending'}
+                >
+                  {resendStatus === 'sending' ? 'Sending...' : 'Send New Link'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => navigate('/login')}
+                >
+                  Go to Login
+                </button>
+              </div>
+            </form>
           </>
         )}
-        
+
         {status === 'error' && (
           <>
             <div className="error-icon">✕</div>
             <h2>Verification Failed</h2>
             <p>{message}</p>
-            <div className="button-group">
-              {retryCount < 3 && (
-                <button 
-                  className="secondary-button"
-                  onClick={handleRetry}
-                >
-                  Retry ({3 - retryCount} attempts left)
-                </button>
+            <form onSubmit={requestNewConfirmation} className="resend-form">
+              <label htmlFor="resend-email-error">Request a new confirmation link</label>
+              <input
+                id="resend-email-error"
+                type="email"
+                value={resendEmail || userEmail}
+                onChange={(e) => setResendEmail(e.target.value)}
+                placeholder="name@example.com"
+                required
+              />
+              {resendMessage && (
+                <div className={`resend-msg resend-msg-${resendStatus}`}>
+                  {resendMessage}
+                </div>
               )}
-              <button 
-                className="primary-button"
-                onClick={() => navigate('/login')}
-              >
-                Go to Login
-              </button>
-            </div>
+              <div className="button-group">
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={resendStatus === 'sending'}
+                >
+                  {resendStatus === 'sending' ? 'Sending...' : 'Send New Link'}
+                </button>
+                {retryCount < 3 && (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleRetry}
+                  >
+                    Retry ({3 - retryCount} attempts left)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => navigate('/login')}
+                >
+                  Go to Login
+                </button>
+              </div>
+            </form>
           </>
         )}
       </div>

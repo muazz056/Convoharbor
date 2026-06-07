@@ -1,7 +1,6 @@
 import click
 from flask.cli import with_appcontext
 from app.models import AiModel, SUPPORTED_PROVIDERS
-from app import db
 
 
 @click.command('seed-ai-models')

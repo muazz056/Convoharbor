@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
 import conversationService from '../../services/conversation.service';
+import MarkdownMessage from '../common/MarkdownMessage';
 import './ChatHistory.css';
 
 const ConversationDetail = () => {
@@ -89,7 +90,7 @@ const ConversationDetail = () => {
                                                 <span className="message-time">{formatDate(msg.created_at)}</span>
                                             </div>
                                             <div className="message-content">
-                                                {msg.content}
+                                                <MarkdownMessage content={msg.content || ''} />
                                             </div>
                                         </div>
                                     ))

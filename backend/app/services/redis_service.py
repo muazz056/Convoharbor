@@ -5,14 +5,13 @@
 import redis
 import json
 import time
-import pickle
-from typing import Optional, Any, List
+from typing import Optional, Any
 from flask import current_app
 
 
 class RedisService:
     """Central Redis service for ConvoPilot.
-    
+
     Provides:
     - Caching (get/set/invalidate with TTL)
     - Rate limiting (sliding window counter)
@@ -77,7 +76,7 @@ class RedisService:
 
     def set_cache(self, key: str, value: Any, ttl: int = None) -> bool:
         """Store a value in cache with optional TTL (seconds).
-        
+
         If ttl is None, uses config's REDIS_CACHE_TTL.
         """
         if ttl is None:
@@ -114,12 +113,12 @@ class RedisService:
 
     def check_rate_limit(self, key: str, max_requests: int = None, window: int = 60) -> tuple:
         """Check if a request should be rate limited.
-        
+
         Args:
             key: Unique identifier (e.g., IP address, user ID)
             max_requests: Max requests allowed in the window (default from config)
             window: Time window in seconds (default: 60)
-            
+
         Returns:
             Tuple of (allowed: bool, remaining: int, reset_at: float)
                 - allowed: True if request is permitted
@@ -216,11 +215,11 @@ class RedisService:
 
     def acquire_lock(self, lock_name: str, timeout: int = 10) -> bool:
         """Acquire a distributed lock with automatic release via TTL.
-        
+
         Args:
             lock_name: Name of the lock
             timeout: Lock TTL in seconds (lock auto-releases after this)
-            
+
         Returns:
             True if lock was acquired, False if already held
         """

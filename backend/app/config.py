@@ -10,6 +10,9 @@ class Config:
 
     PROMPT_CONFIG_PATH = os.path.join(BASE_DIR, 'prompts.yml')
 
+    # App Branding
+    APP_NAME = os.environ.get('APP_NAME', 'Convoharbor')
+
     SECRET_KEY = os.environ.get('SECRET_KEY') or 'your-secret-key'
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
@@ -48,7 +51,8 @@ class Config:
     CLOUDINARY_API_KEY = os.environ.get('CLOUDINARY_API_KEY')
     CLOUDINARY_API_SECRET = os.environ.get('CLOUDINARY_API_SECRET')
     CLOUDINARY_URL = os.environ.get('CLOUDINARY_URL')
-    CLOUDINARY_UPLOAD_FOLDER = os.environ.get('CLOUDINARY_UPLOAD_FOLDER', 'convopilot_temp')
+    # Default upload folder = APP_NAME (lowercased), set CLOUDINARY_UPLOAD_FOLDER to override
+    CLOUDINARY_UPLOAD_FOLDER = os.environ.get('CLOUDINARY_UPLOAD_FOLDER') or APP_NAME.lower()
 
     # Brevo (Email Service)
     BREVO_API_KEY = os.environ.get('BREVO_API_KEY')
@@ -95,10 +99,43 @@ class Config:
     EMBEDDING_MAX_RETRIES = int(os.environ.get('EMBEDDING_MAX_RETRIES', '3'))
     EMBEDDING_RETRY_BASE_DELAY = float(os.environ.get('EMBEDDING_RETRY_BASE_DELAY', '2.0'))
 
+    # =============================================================
+    # Gemini rate limit (free tier = 100 embedding requests per
+    # minute per model). The sliding-window limiter in
+    # services/rate_limiter.py uses these values to back off
+    # automatically when the quota is exhausted.
+    # =============================================================
+    GEMINI_RATE_LIMIT_PER_MINUTE = int(os.environ.get('GEMINI_RATE_LIMIT_PER_MINUTE', '100'))
+    GEMINI_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('GEMINI_RATE_LIMIT_WINDOW_SECONDS', '60'))
+
+    # Encryption
+    ENCRYPTION_SALT = os.environ.get('ENCRYPTION_SALT') or 'change-this-salt-in-production'
+
     # Retrieval & Document Processing Settings
     RETRIEVAL_SCORE_THRESHOLD = 0.4
     CHUNK_SIZE = 1000
     CHUNK_OVERLAP = 150
+
+    # =============================================================
+    # Chatbot Config Defaults (used when fields are missing from
+    # the chatbot's stored config). Only the Super Admin can change
+    # these per-chatbot values via the chatbot update API.
+    # =============================================================
+    DEFAULT_TOP_K = int(os.environ.get('DEFAULT_TOP_K', '10'))
+    DEFAULT_MODE = os.environ.get('DEFAULT_MODE', 'strict')
+    DEFAULT_TEMPERATURE = float(os.environ.get('DEFAULT_TEMPERATURE', '0.7'))
+    DEFAULT_MAX_TOKENS = int(os.environ.get('DEFAULT_MAX_TOKENS', '2048'))
+
+    # Validation bounds for chatbot config fields
+    TOP_K_MIN = int(os.environ.get('TOP_K_MIN', '1'))
+    TOP_K_MAX = int(os.environ.get('TOP_K_MAX', '50'))
+    TEMPERATURE_MIN = float(os.environ.get('TEMPERATURE_MIN', '0.0'))
+    TEMPERATURE_MAX = float(os.environ.get('TEMPERATURE_MAX', '2.0'))
+    MAX_TOKENS_MIN = int(os.environ.get('MAX_TOKENS_MIN', '64'))
+    MAX_TOKENS_MAX = int(os.environ.get('MAX_TOKENS_MAX', '32000'))
+
+    # Roles allowed to mutate top_k / mode / temperature / max_tokens
+    SUPER_ADMIN_ROLE = 'super_admin'
 
 
 class DevelopmentConfig(Config):
@@ -129,7 +166,7 @@ class ProductionConfig(Config):
         file_handler.setLevel(logging.INFO)
         app.logger.addHandler(file_handler)
         app.logger.setLevel(logging.INFO)
-        app.logger.info('ConvoPilot startup')
+        app.logger.info(f'{cls.APP_NAME} startup')
 
 
 config = {

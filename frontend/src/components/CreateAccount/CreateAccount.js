@@ -1,5 +1,5 @@
 import "./CreateAccount.css";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { validateEmail, validatePassword, validateConfirmPassword, validateName, validatePhone, getPasswordStrength, createRateLimiter } from "../../utils/validation";
@@ -27,7 +27,14 @@ const CreateAccount = () => {
   const [rateLimitInfo, setRateLimitInfo] = useState(null);
   
   const navigate = useNavigate();
-  const { signup, resendConfirmation } = useAuth();
+  const { signup, resendConfirmation, isAuthenticated } = useAuth();
+
+  // If user is already logged in, redirect to dashboard
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/chatbot', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -151,7 +158,7 @@ const CreateAccount = () => {
     <div className="auth-page">
       <Navbar />
       <div className="auth-container">
-        <div className="auth-card auth-card-wide" data-aos="fade-up">
+        <div className="auth-card auth-card-wide">
           <div className="auth-header">
             <h1 className="auth-title">Create Account</h1>
             <p className="auth-subtitle">Get started with your free account</p>

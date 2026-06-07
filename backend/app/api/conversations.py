@@ -8,41 +8,44 @@ from . import api, rate_limit
 from ..decorators import login_required
 from ..models import Conversation, Message, ConversationFeedback, Chatbot
 from .. import db
-from sqlalchemy import and_, or_, desc
+from ..services import chatbot_defaults
+from sqlalchemy import desc
+
 
 def stream_response_chunks(text, chunk_size=1, delay=0.005):
     """
     Stream response text word-by-word with typewriter effect.
-    
+
     Args:
         text: The full response text to stream
         chunk_size: Number of words per chunk (1 for true typewriter effect)
         delay: Delay between chunks in seconds (0.005 for fast typewriter)
-    
+
     Yields:
         SSE-formatted chunks of text
     """
     if not text:
         return
-    
+
     # Ensure text is a string
     if not isinstance(text, str):
         text = str(text)
-    
+
     # Split by individual words and spaces for true typewriter effect
     words = re.findall(r'\S+|\s+', text)
-    
+
     accumulated_text = ""
-    
+
     for word in words:
         accumulated_text += word
-        
+
         # Send each word/space individually for typewriter effect
         yield f"data: {json.dumps({'content': word, 'accumulated': accumulated_text})}\n\n"
-        
+
         # Only add delay for actual words (not spaces) and make it faster
         if word.strip():
             time.sleep(delay)
+
 
 @api.route('/conversations', methods=['POST'], endpoint='create_conversation')
 @rate_limit(90, 60)
@@ -84,34 +87,34 @@ def create_conversation():
         data = request.get_json() or {}
         chatbot_id = data.get('chatbot_id')
         session_id = data.get('session_id')
-        
+
         # Check if frontend explicitly indicates this is an embed conversation
         is_embed_request = data.get('is_embed', False)
         custom_title = data.get('title')
-        
+
         # NEW: Extract website context (optional - won't break existing functionality)
         website_context = data.get('website_context', {})
         source_domain = website_context.get('domain') if website_context else None
         source_url = website_context.get('url') if website_context else None
-        
+
         # DEBUG: Log what we received
         current_app.logger.info(f"🔧 CREATE_CONVERSATION DEBUG:")
         current_app.logger.info(f"   ├─ Request data: {data}")
         current_app.logger.info(f"   ├─ Website context: {website_context}")
         current_app.logger.info(f"   ├─ Source domain: {source_domain}")
         current_app.logger.info(f"   └─ Source URL: {source_url}")
-        
+
         if not chatbot_id:
             return jsonify({'error': 'chatbot_id is required'}), 400
-            
+
         # Verify chatbot exists
         chatbot = Chatbot.query.filter_by(id=chatbot_id).first()
         if not chatbot:
             return jsonify({'error': 'Chatbot not found'}), 404
-            
+
         # Determine conversation type - prioritize frontend indication
         is_embed = is_embed_request or (not hasattr(g, 'user_id') or getattr(g, 'user_id', None) is None)
-        
+
         # Use custom title if provided, otherwise generate default
         if custom_title:
             title = custom_title
@@ -119,9 +122,9 @@ def create_conversation():
             title = f"Embed Chat - {source_domain}"
         else:
             title = f"Embed Chat - {chatbot.name}" if is_embed else f"Admin Chat - {chatbot.name}"
-        
+
         current_app.logger.info(f"🔧 Creating conversation: chatbot_id={chatbot_id}, is_embed={is_embed}, title='{title}', domain={source_domain}")
-        
+
         # Create conversation with basic fields (always works)
         conv_data = {
             'session_id': session_id or f"sess-{datetime.utcnow().timestamp()}",
@@ -132,7 +135,7 @@ def create_conversation():
             'status': 'active',
             'language': 'en'
         }
-        
+
         # NEW: Add website tracking fields only if they exist in the model (backward compatible)
         try:
             # Check if the model has the new fields
@@ -149,25 +152,25 @@ def create_conversation():
                 current_app.logger.warning(f"⚠️ Conversation model does not have source_domain field")
         except Exception as e:
             current_app.logger.warning(f"⚠️ Website tracking fields not available: {e}")
-        
+
         current_app.logger.info(f"🔧 Final conversation data: {conv_data}")
-        
+
         conv = Conversation(**conv_data)
         db.session.add(conv)
         db.session.commit()
-        
+
         current_app.logger.info(f"✅ Created conversation {conv.id} with title: '{conv.title}' for domain: {source_domain or 'unknown'}")
-        
+
         # DEBUG: Verify the created conversation
         created_conv = Conversation.query.get(conv.id)
         if created_conv:
             current_app.logger.info(f"🔍 Verification - Created conv: title={created_conv.title}, domain={getattr(created_conv, 'source_domain', 'MISSING')}")
-        
+
         # Send notification for new conversation (non-blocking)
         try:
             from ..services.notification_service import NotificationService
             notification_service = NotificationService()
-            
+
             # Only send notifications for embed conversations (external users)
             if is_embed and source_domain:
                 notification_service.send_conversation_started_notification(
@@ -179,9 +182,9 @@ def create_conversation():
         except Exception as e:
             # Don't fail the conversation creation if notification fails
             current_app.logger.error(f"Failed to send conversation notification: {str(e)}")
-        
+
         return jsonify({'conversation_id': conv.id, 'session_id': conv.session_id}), 201
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"❌ Error creating conversation: {e}")
@@ -271,7 +274,7 @@ def list_conversations():
         end_date = request.args.get('end_date')
         page = request.args.get('page', 1, type=int)
         per_page = min(request.args.get('per_page', 20, type=int), 100)
-        
+
         # Build query with tenant filtering
         # Convert tenant UUID to integer ID for database query
         from ..models import Tenant
@@ -279,14 +282,14 @@ def list_conversations():
         if not tenant:
             current_app.logger.error(f"Tenant not found for UUID: {g.user_tenant_id}")
             return jsonify({'error': 'Tenant not found'}), 404
-            
+
         tenant_integer_id = tenant.id
         query = Conversation.query.filter_by(tenant_id=tenant_integer_id)
-        
+
         # Debug: Count total conversations for this tenant
         total_conversations = query.count()
         current_app.logger.info(f"🔍 Total conversations for tenant: {total_conversations}")
-        
+
         # Apply filters
         if chatbot_id:
             current_app.logger.info(f"🔍 Filtering by chatbot_id: {chatbot_id}")
@@ -298,43 +301,43 @@ def list_conversations():
             query = query.filter_by(chatbot_id=chatbot_id)
             filtered_count = query.count()
             current_app.logger.info(f"🔍 Conversations for chatbot {chatbot_id}: {filtered_count}")
-            
+
         if status:
             query = query.filter_by(status=status)
-            
+
         if start_date:
             try:
                 start_dt = datetime.strptime(start_date, '%Y-%m-%d')
                 query = query.filter(Conversation.created_at >= start_dt)
             except ValueError:
                 return jsonify({'error': 'Invalid start_date format. Use YYYY-MM-DD'}), 400
-                
+
         if end_date:
             try:
                 end_dt = datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1)
                 query = query.filter(Conversation.created_at < end_dt)
             except ValueError:
                 return jsonify({'error': 'Invalid end_date format. Use YYYY-MM-DD'}), 400
-        
+
         # Order by most recent first
         query = query.order_by(desc(Conversation.created_at))
-        
+
         # Paginate
         pagination = query.paginate(
-            page=page, 
-            per_page=per_page, 
+            page=page,
+            per_page=per_page,
             error_out=False
         )
-        
+
         conversations = []
         for conv in pagination.items:
             conv_dict = conv.to_dict()
-            
+
             # Add chatbot name
             if conv.chatbot_id:
                 chatbot = Chatbot.query.get(conv.chatbot_id)
                 conv_dict['chatbot_name'] = chatbot.name if chatbot else 'Unknown'
-            
+
             # Add latest message preview
             latest_message = conv.messages.order_by(desc(Message.created_at)).first()
             if latest_message:
@@ -343,12 +346,12 @@ def list_conversations():
                     'message_type': latest_message.message_type,
                     'created_at': latest_message.created_at.isoformat()
                 }
-            
+
             conversations.append(conv_dict)
-        
+
         current_app.logger.info(f"🔍 Returning {len(conversations)} conversations to frontend")
         current_app.logger.info(f"🔍 Pagination: page={pagination.page}, total={pagination.total}")
-        
+
         return jsonify({
             'success': True,
             'conversations': conversations,
@@ -359,7 +362,7 @@ def list_conversations():
                 'pages': pagination.pages
             }
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"Error listing conversations: {str(e)}")
         return jsonify({'error': 'Failed to fetch conversations'}), 500
@@ -391,33 +394,33 @@ def debug_conversations():
     """Debug endpoint to check conversation storage"""
     try:
         from ..models import Message
-        
+
         tenant_id = g.user_tenant_id
-        
+
         # Count total conversations for this tenant
         total_conversations = Conversation.query.filter_by(tenant_id=tenant_id).count()
-        
+
         # Count total messages for this tenant
         total_messages = db.session.query(Message).join(Conversation).filter(
             Conversation.tenant_id == tenant_id
         ).count()
-        
+
         # Count conversations by chatbot
         conversations_by_chatbot = {}
         chatbots = Chatbot.query.filter_by(tenant_id=tenant_id).all()
         for chatbot in chatbots:
             count = Conversation.query.filter_by(
-                tenant_id=tenant_id, 
+                tenant_id=tenant_id,
                 chatbot_id=chatbot.id
             ).count()
             conversations_by_chatbot[f"{chatbot.name} (ID: {chatbot.id})"] = count
-        
+
         # Get recent conversations
         recent_conversations = []
         recent_convs = Conversation.query.filter_by(tenant_id=tenant_id).order_by(
             desc(Conversation.created_at)
         ).limit(5).all()
-        
+
         for conv in recent_convs:
             chatbot = Chatbot.query.get(conv.chatbot_id)
             recent_conversations.append({
@@ -429,7 +432,7 @@ def debug_conversations():
                 'message_count': conv.messages.count(),
                 'created_at': conv.created_at.isoformat()
             })
-        
+
         return jsonify({
             'success': True,
             'tenant_id': tenant_id,
@@ -438,10 +441,11 @@ def debug_conversations():
             'conversations_by_chatbot': conversations_by_chatbot,
             'recent_conversations': recent_conversations
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"Error in debug endpoint: {str(e)}")
         return jsonify({'error': 'Debug failed'}), 500
+
 
 @api.route('/conversations/<int:conversation_id>', methods=['GET'], endpoint='get_conversation')
 def get_conversation(conversation_id):
@@ -450,7 +454,7 @@ def get_conversation(conversation_id):
         conversation = Conversation.query.get(conversation_id)
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-            
+
         return jsonify({
             'conversation': {
                 'id': conversation.id,
@@ -460,10 +464,11 @@ def get_conversation(conversation_id):
                 'created_at': conversation.created_at.isoformat() if conversation.created_at else None
             }
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"❌ Error getting conversation {conversation_id}: {e}")
         return jsonify({'error': 'Failed to get conversation'}), 500
+
 
 @api.route('/conversations/<int:conversation_id>/messages', methods=['GET'], endpoint='get_conversation_messages')
 @login_required
@@ -504,23 +509,23 @@ def get_conversation_messages(conversation_id):
     try:
         current_app.logger.info(f"Fetching messages for conversation {conversation_id}")
         current_app.logger.info(f"User tenant ID: {getattr(g, 'user_tenant_id', 'None')}")
-        
+
         # Get conversation - temporarily remove tenant verification for debugging
         conversation = Conversation.query.filter_by(id=conversation_id).first()
-        
+
         if not conversation:
             current_app.logger.error(f"Conversation {conversation_id} not found")
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         current_app.logger.info(f"Found conversation: {conversation.title}, tenant: {conversation.tenant_id}")
-        
+
         # Get messages ordered chronologically
         messages = Message.query.filter_by(
             conversation_id=conversation_id
         ).order_by(Message.created_at).all()
-        
+
         current_app.logger.info(f"Found {len(messages)} messages")
-        
+
         # Convert to dict
         messages_data = []
         for msg in messages:
@@ -530,25 +535,26 @@ def get_conversation_messages(conversation_id):
             except Exception as msg_error:
                 current_app.logger.error(f"Error converting message {msg.id} to dict: {msg_error}")
                 raise msg_error
-        
+
         # Convert conversation to dict
         try:
             conversation_dict = conversation.to_dict()
         except Exception as conv_error:
             current_app.logger.error(f"Error converting conversation to dict: {conv_error}")
             raise conv_error
-        
+
         return jsonify({
             'success': True,
             'conversation': conversation_dict,
             'messages': messages_data
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"Error fetching conversation messages: {str(e)}")
         import traceback
         current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to fetch messages: {str(e)}'}), 500
+
 
 @api.route('/conversations/<int:conversation_id>/messages/public', methods=['GET'], endpoint='get_conversation_messages_public')
 @swag_from({
@@ -587,28 +593,28 @@ def get_conversation_messages_public(conversation_id):
     """Get all messages in a conversation (public endpoint for embeds)."""
     try:
         current_app.logger.info(f"📥 Public: Fetching messages for conversation {conversation_id}")
-        
+
         # Get conversation
         conversation = Conversation.query.filter_by(id=conversation_id).first()
-        
+
         if not conversation:
             current_app.logger.error(f"❌ Conversation {conversation_id} not found")
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         # Only allow access to embed conversations for security
         if not conversation.is_embed:
             current_app.logger.error(f"❌ Conversation {conversation_id} is not an embed conversation")
             return jsonify({'error': 'Access denied'}), 403
-        
+
         current_app.logger.info(f"✅ Found embed conversation: {conversation.title}")
-        
+
         # Get messages ordered chronologically
         messages = Message.query.filter_by(
             conversation_id=conversation_id
         ).order_by(Message.created_at).all()
-        
+
         current_app.logger.info(f"📨 Found {len(messages)} messages")
-        
+
         # Convert to dict
         messages_data = []
         for msg in messages:
@@ -618,17 +624,18 @@ def get_conversation_messages_public(conversation_id):
             except Exception as msg_error:
                 current_app.logger.error(f"❌ Error converting message {msg.id} to dict: {msg_error}")
                 raise msg_error
-        
+
         return jsonify({
             'success': True,
             'messages': messages_data
         })
-        
+
     except Exception as e:
         current_app.logger.error(f"❌ Error fetching conversation messages: {str(e)}")
         import traceback
         current_app.logger.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({'error': f'Failed to fetch messages: {str(e)}'}), 500
+
 
 @api.route('/conversations/<int:conversation_id>/messages', methods=['POST'], endpoint='send_message')
 @rate_limit(120, 60)
@@ -680,11 +687,11 @@ def get_conversation_messages_public(conversation_id):
 })
 def send_message(conversation_id):
     """Send a message to a conversation and get AI response. Supports streaming via SSE."""
-    
+
     # Check if client wants streaming
     accept_header = request.headers.get('Accept', '')
     wants_streaming = 'text/event-stream' in accept_header
-    
+
     if wants_streaming:
         current_app.logger.info(f"🌊 Streaming mode requested for conversation {conversation_id}")
         return send_message_stream(conversation_id)
@@ -692,32 +699,33 @@ def send_message(conversation_id):
         current_app.logger.info(f"📦 Standard JSON mode for conversation {conversation_id}")
         return send_message_json(conversation_id)
 
+
 def send_message_json(conversation_id):
     """Original non-streaming JSON response."""
     try:
         data = request.get_json() or {}
         content = data.get('content', '').strip()
         chatbot_id = data.get('chatbot_id')
-        
+
         if not content:
             return jsonify({'error': 'Message content is required'}), 400
         if not chatbot_id:
             return jsonify({'error': 'chatbot_id is required'}), 400
-            
+
         # Get conversation and verify it exists
         conversation = Conversation.query.get(conversation_id)
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-            
+
         # Get chatbot and verify it exists
         chatbot = Chatbot.query.get(chatbot_id)
         if not chatbot:
             return jsonify({'error': 'Chatbot not found'}), 404
-            
+
         # Verify conversation belongs to the chatbot
         if conversation.chatbot_id != chatbot_id:
             return jsonify({'error': 'Conversation does not belong to this chatbot'}), 400
-            
+
         # Create user message
         user_message = Message(
             conversation_id=conversation_id,
@@ -727,156 +735,268 @@ def send_message_json(conversation_id):
         )
         db.session.add(user_message)
 
-        
         # Initialize conversation service for greeting/farewell detection
         from ..services.conversation_service import ConversationService
         conversation_service = ConversationService()
-        
+
         # Generate AI response
         start_time = time.time()
         try:
             # Check if this is a greeting or farewell message
             is_greeting = conversation_service.is_greeting(content)
             is_farewell = conversation_service.is_farewell(content)
-            
+
             # Detect conversation ending
             if is_farewell:
                 conversation_service.detect_conversation_ending(content, conversation_id)
-            
+
             # Get context from processed chunks stored in database/vector store
             context_text = ""
-            
+
             try:
                 current_app.logger.info(f"🔍 Vector search for: '{content}' in chatbot {chatbot_id}")
-                
+
                 # Use proper vector search instead of manual keyword matching
                 if hasattr(current_app, 'vector_service') and current_app.vector_service:
-                    # Get top_k from chatbot config
+                    # Get top_k from chatbot config (resolved through the
+                    # single source of truth so .env defaults apply).
                     config = chatbot.config or {}
-                    top_k = config.get('top_k', 10)
-                    
+                    top_k = chatbot_defaults.resolve_field(config, 'top_k')
+
                     # Perform semantic vector search
                     search_results = current_app.vector_service.search_similar(
                         query=content,
                         chatbot_id=chatbot_id,
                         limit=top_k
                     )
-                    
-                    current_app.logger.info(f"🔍 Vector search found {len(search_results)} results")
-                    
+
+                    current_app.logger.info(f"🔍 Vector search returned {len(search_results)} results for chatbot {chatbot_id}")
+
                     if search_results:
-                        # Extract content from search results
+                        # === DETAILED RAG RETRIEVAL LOGGING ===
+                        # Log every retrieved chunk with its source, score, and content
+                        # preview so we can verify retrieval is correct for this query.
+                        current_app.logger.info(
+                            f"📚 RAG RETRIEVAL: {len(search_results)} chunks for query "
+                            f"'{content[:80]}' (chatbot_id={chatbot_id})"
+                        )
+                        for idx, result in enumerate(search_results, 1):
+                            if hasattr(result, 'page_content'):
+                                chunk_content = result.page_content or ''
+                                metadata = getattr(result, 'metadata', {}) or {}
+                                score = (
+                                    getattr(result, 'score', None)
+                                    or metadata.get('score')
+                                    or metadata.get('distance')
+                                )
+                            else:
+                                chunk_content = result.get('page_content', '') or ''
+                                metadata = result.get('metadata', {}) or {}
+                                score = (
+                                    result.get('score')
+                                    or metadata.get('score')
+                                    or metadata.get('distance')
+                                )
+                            source = (
+                                metadata.get('source')
+                                or metadata.get('url')
+                                or metadata.get('file_name')
+                                or metadata.get('doc_id')
+                                or 'unknown'
+                            )
+                            current_app.logger.info(
+                                f"   [{idx}] source={source!r} "
+                                f"score={score!r} "
+                                f"len={len(chunk_content)} "
+                                f"preview={chunk_content[:120]!r}"
+                            )
+                        # === END RETRIEVAL LOGGING ===
+
+                        # Extract content from search results, deduplicating
+                        # identical chunks (same source + doc_id + chunk_index
+                        # + content prefix) so the LLM does not see the
+                        # same paragraph repeated 4x.
                         context_chunks = []
+                        seen_keys = set()
                         for result in search_results:
-                            # Handle SimpleDoc objects with page_content attribute
                             chunk_content = getattr(result, 'page_content', '') if hasattr(result, 'page_content') else result.get('page_content', '')
-                            if chunk_content:
-                                context_chunks.append(chunk_content)
-                                # current_app.logger.info(f"🔍 Found relevant chunk: {chunk_content[:100]}...")
-                        
+                            if not chunk_content:
+                                continue
+                            metadata = getattr(result, 'metadata', None) or {}
+                            if not isinstance(metadata, dict):
+                                metadata = {}
+                            dedup_key = (
+                                metadata.get('source', ''),
+                                metadata.get('doc_id', ''),
+                                metadata.get('chunk_index', -1),
+                                chunk_content[:80],
+                            )
+                            if dedup_key in seen_keys:
+                                continue
+                            seen_keys.add(dedup_key)
+                            context_chunks.append(chunk_content)
+
                         context_text = "\n\n".join(context_chunks)
-                        current_app.logger.info(f"🔍 Vector search found {len(context_chunks)} matching chunks, context length: {len(context_text)}")
+                        current_app.logger.info(
+                            f"🔍 Vector search: {len(search_results)} retrieved -> "
+                            f"{len(context_chunks)} unique chunks, "
+                            f"context length: {len(context_text)}"
+                        )
                     else:
                         current_app.logger.info(f"🔍 Vector search found no matching chunks")
                 else:
                     current_app.logger.warning(f"🔍 Vector service not available")
-                    
+
             except Exception as e:
                 current_app.logger.error(f"Vector search failed: {e}")
                 context_text = ""
-            
+
             # Get chatbot configuration for knowledge base restriction
             config = chatbot.config or {}
             # Check if we should restrict to knowledge base based on mode and message type
             restrict_to_knowledge_base = conversation_service.should_restrict_to_knowledge_base(content, config)
-            
+
             current_app.logger.info(f"🔍 Database chunk search: context length: {len(context_text)}")
             current_app.logger.info(f"🔍 Context text preview: {repr(context_text[:200])}...")
             current_app.logger.info(f"🔒 Knowledge base restriction enabled: {restrict_to_knowledge_base}")
-            
+
             # Check if we have relevant context from the knowledge base
             current_app.logger.info(f"🔍 Checking fallback condition: restrict={restrict_to_knowledge_base}, context_empty={not context_text}, context_strip_empty={not context_text.strip() if context_text else True}")
             if restrict_to_knowledge_base and (not context_text or not context_text.strip()):
                 current_app.logger.warning(f"🔍 FALLBACK TRIGGERED: No context found for query: '{content}' in chatbot {chatbot_id}")
-                
+
                 # No broader search needed with simple text search approach
-                
+
                 # If still no context after broader search, return fallback message
                 if not context_text or not context_text.strip():
                     # Check if this is strict mode for better messaging
                     mode = config.get('mode', 'strict')
                     if mode == 'strict':
-                        fallback_message = config.get('prompts', {}).get('fallback', 
-                            "I'm in strict mode and can only answer questions based on my knowledge base. I don't have information about this topic in my uploaded documents. Please ask me something related to the provided documents, or you can say hello or goodbye."
-                        )
+                        fallback_message = config.get('prompts', {}).get('fallback',
+                                                                         "I'm in strict mode and can only answer questions based on my knowledge base. I don't have information about this topic in my uploaded documents. Please ask me something related to the provided documents, or you can say hello or goodbye."
+                                                                         )
                     else:
-                        fallback_message = config.get('prompts', {}).get('fallback', 
-                            "I apologize, but I can only answer questions based on the documents and information that have been provided to me. I don't have information about this topic in my knowledge base. Please ask me something related to the uploaded documents or try rephrasing your question."
-                        )
-                    
+                        fallback_message = config.get('prompts', {}).get('fallback',
+                                                                         "I apologize, but I can only answer questions based on the documents and information that have been provided to me. I don't have information about this topic in my knowledge base. Please ask me something related to the uploaded documents or try rephrasing your question."
+                                                                         )
+
                     # Create assistant message with fallback
                     response_time = time.time() - start_time
+                    fallback_model_name = config.get('ai_model')
+                    if not fallback_model_name:
+                        try:
+                            from ..services.model_resolver import resolve_model
+                            fallback_model_name, _ = resolve_model(config)
+                        except ValueError:
+                            fallback_model_name = None
                     assistant_message = Message(
                         conversation_id=conversation_id,
                         content=fallback_message,
                         message_type='assistant',
-                        model_used=config.get('ai_model', 'gpt-4o-mini'),
-                        provider=config.get('ai_provider', 'OpenAI'),
+                        model_used=fallback_model_name,
+                        provider=config.get('ai_provider'),
                         response_time=response_time,
                         created_at=datetime.utcnow()
                     )
                     db.session.add(assistant_message)
                     db.session.commit()
-                    
+
                     return jsonify({
                         'success': True,
                         'user_message': user_message.to_dict(),
                         'assistant_message': assistant_message.to_dict()
                     })
                 # If broader search found context, continue with normal processing
-            
+
             # Get chatbot configuration (already loaded above)
-            ai_model = config.get('ai_model', 'gpt-4o-mini')
-            ai_provider = config.get('ai_provider', 'OpenAI')
-            temperature = config.get('temperature', 0.7)
-            
-            # Build enhanced system message with chatbot personality
+            try:
+                from ..services.model_resolver import resolve_model
+                ai_model, ai_provider = resolve_model(config)
+            except ValueError:
+                ai_model = config.get('ai_model')
+                ai_provider = config.get('ai_provider')
+            temperature = chatbot_defaults.resolve_field(config, 'temperature')
+
+            # Build enhanced system message with chatbot personality + RAG mode
             personality = config.get('personality', {})
             prompts = config.get('prompts', {})
-            
+
             system_message = prompts.get('system_message', '')
             if not system_message and personality:
                 role = personality.get('role', 'AI Assistant')
                 tone = personality.get('tone', 'helpful and professional')
                 style = personality.get('style', 'clear and concise')
                 system_message = f"You are a {role}. Respond in a {tone} manner with a {style} style."
-            
-            # Add language detection instruction - optimized for speed
-            language_instruction = """
-LANGUAGE: Always reply in the same language as the user's message. English→English, Spanish→Spanish, etc. Translate knowledge base content as needed."""
-            system_message = f"{system_message}\n\n{language_instruction}"
-            
-            # Build system message with or without knowledge base restriction
+
+            # All RAG / mode / language logic now lives in prompts.yml
+            from ..services.prompt_service import PromptService
+            prompt_svc = PromptService()
+
+            _mode = config.get('mode', 'strict')  # noqa: F841
+            target_lang = config.get('target_language', 'English')
+            chatbot_name = config.get('name', 'this chatbot')
+            chatbot_role = personality.get('role', 'AI Assistant')
+
             if restrict_to_knowledge_base:
                 if context_text and context_text.strip():
-                    # We have context, so instruct the LLM to use it
-                    knowledge_restriction = "Answer using the context below. If not found, say you don't have that information."
-                    full_system_message = f"{system_message}\n\n{knowledge_restriction}\n\nContext:\n{context_text}\n\nAnswer:"
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.strict',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context=context_text,
+                    )
                 else:
-                    # No context available, use restrictive message
-                    knowledge_restriction = """
-IMPORTANT: You can ONLY answer questions based on your knowledge base. I don't have information about this topic in my uploaded documents. Please ask me something related to the provided documents, or you can say hello or goodbye."""
-                    full_system_message = f"{system_message}\n\n{knowledge_restriction}"
+                    # No context in strict mode -> refusal
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.out_of_scope',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context='',
+                        refusal_message="I'm sorry, but I can't find an answer to your question in my knowledge base right now.",
+                    )
             else:
-                # Allow general knowledge but prioritize context
-                full_system_message = f"{system_message}\n\nUse this context from the knowledge base if relevant:\n\n{context_text}" if context_text else system_message
-            
+                full_system_message = system_message + "\n\n" + prompt_svc.render(
+                    'rag_system.permissive',
+                    chatbot_name=chatbot_name,
+                    chatbot_role=chatbot_role,
+                    target_lang=target_lang,
+                    context=context_text or '',
+                )
+
             # Generate AI response
             messages = [
                 {"role": "system", "content": full_system_message},
                 {"role": "user", "content": content}
             ]
-            
+
+            # === LLM CALL LOGGING ===
+            # Log exactly what we are about to send to the model so we can
+            # verify the RAG prompt and context are correct for each query.
+            current_app.logger.info(
+                f"🤖 LLM CALL: chatbot={chatbot_id} "
+                f"mode={config.get('mode', 'strict')} "
+                f"restrict_to_kb={restrict_to_knowledge_base} "
+                f"history_msgs={len(messages) - 1} "
+                f"system_prompt_len={len(full_system_message)}"
+            )
+            current_app.logger.info(
+                f"📤 SYSTEM PROMPT SENT TO LLM (first 800 chars):\n"
+                f"{full_system_message[:800]}"
+            )
+            current_app.logger.info(
+                f"📤 USER MESSAGE SENT TO LLM: {content!r}"
+            )
+            if context_text:
+                current_app.logger.info(
+                    f"📦 CONTEXT SENT TO LLM ({len(context_text)} chars total, "
+                    f"first 600 chars):\n{context_text[:600]}"
+                )
+            else:
+                current_app.logger.info("📦 CONTEXT SENT TO LLM: (empty)")
+            # === END LLM CALL LOGGING ===
+
             # Handle greetings and farewells with special responses
             if is_greeting:
                 ai_response = conversation_service.get_greeting_response(config)
@@ -889,9 +1009,28 @@ IMPORTANT: You can ONLY answer questions based on your knowledge base. I don't h
                 ai_response = ""
                 if current_app.llm_service:
                     try:
+                        # For strict-mode refusals (no KB context found), force
+                        # temperature=0.0 and cap max_tokens. This stops the
+                        # LLM from leaking training-data hints (e.g.
+                        # "However, I think you might be referencing...").
+                        if (restrict_to_knowledge_base
+                                and not (context_text and context_text.strip())):
+                            call_config = dict(config)
+                            call_config['temperature'] = 0.0
+                            call_config['max_tokens'] = min(
+                                int(call_config.get('max_tokens') or 256),
+                                120
+                            )
+                            current_app.logger.info(
+                                "🔒 Strict refusal path - forcing "
+                                f"temperature=0.0, max_tokens={call_config['max_tokens']}"
+                            )
+                        else:
+                            call_config = config
+
                         response_data = current_app.llm_service.generate_for_chatbot(
                             messages=messages,
-                            chatbot_config=config,
+                            chatbot_config=call_config,
                             user_id=str(getattr(g, 'user_id', 'anonymous')),
                             tenant_id=str(chatbot.tenant_id)
                         )
@@ -903,22 +1042,22 @@ IMPORTANT: You can ONLY answer questions based on your knowledge base. I don't h
                     # Provide a helpful demo response when service is unavailable
                     current_app.logger.warning("LLM service not available - using demo response")
                     ai_response = f"""Hello! This is a demo response.
-                
+
 The AI service is currently not configured with valid API keys. To enable full functionality:
 
 1. Set OPENAI_API_KEY in your environment variables
-2. Set GEMINI_API_KEY in your environment variables  
+2. Set GEMINI_API_KEY in your environment variables
 3. Restart the Flask application
 
 Your message was: "{content}"
 
 This chatbot is configured to use the {ai_model} model."""
-                
+
             # Calculate response time
             response_time = time.time() - start_time if 'start_time' in locals() else None
-            
+
             # Create assistant message with full metadata
-            assistant_message = Message(    
+            assistant_message = Message(
                 conversation_id=conversation_id,
                 content=ai_response,
                 message_type='assistant',
@@ -932,13 +1071,13 @@ This chatbot is configured to use the {ai_model} model."""
             )
             db.session.add(assistant_message)
             db.session.commit()
-            
+
             # Analyze user intent for conversation ending using GPT-4o with confirmation flow
             # OPTIMIZATION: Only run intent analysis if farewell detected to avoid slowness
             show_rating = False
             rating_message = 'How would you rate your experience?'
             ask_confirmation = False
-            
+
             try:
                 if is_farewell and hasattr(current_app, 'intent_analysis_service') and current_app.intent_analysis_service:
                     # Get recent messages for context (last 6 messages for better pattern detection)
@@ -946,7 +1085,7 @@ This chatbot is configured to use the {ai_model} model."""
                         .order_by(Message.created_at.desc())\
                         .limit(6)\
                         .all()
-                    
+
                     # Build conversation context as list of dicts (correct format)
                     messages_list = []
                     for msg in reversed(recent_messages):  # Reverse to get chronological order
@@ -954,16 +1093,16 @@ This chatbot is configured to use the {ai_model} model."""
                             'message_type': msg.message_type,
                             'content': msg.content
                         })
-                    
+
                     # Analyze intent with correct signature: (messages, user_message)
                     intent_result = current_app.intent_analysis_service.analyze_conversation_intent(messages_list, content)
-                    
+
                     # Check for direct rating trigger
                     if intent_result.get('should_show_rating', False):
                         show_rating = True
                         confidence = intent_result.get('confidence', 0.0)
                         patterns = intent_result.get('detected_patterns', [])
-                        
+
                         # Create a personalized rating message
                         if patterns:
                             if any('thank' in p.lower() for p in patterns):
@@ -974,64 +1113,65 @@ This chatbot is configured to use the {ai_model} model."""
                                 rating_message = "Great! Before you go, how would you rate our chat?"
                             else:
                                 rating_message = "How would you rate your experience with me today?"
-                        
+
                         current_app.logger.info(f"🌟 Intent analysis triggered rating: confidence={confidence:.2f}, patterns={patterns}")
-                        
+
                         # Mark conversation as ended
                         conversation = Conversation.query.get(conversation_id)
                         if conversation:
                             conversation.conversation_ended = True
                             db.session.commit()
-                            
+
                     # Check for confirmation flow
                     elif intent_result.get('should_ask_confirmation', False):
                         ask_confirmation = True
                         confidence = intent_result.get('confidence', 0.0)
                         confirmation_message = intent_result.get('confirmation_message', 'Is there anything else I can help you with today?')
-                        
+
                         current_app.logger.info(f"🤔 Intent analysis suggests asking confirmation: confidence={confidence:.2f}")
-                        
+
                         # Override the AI response with confirmation question
                         ai_response = confirmation_message
                         assistant_message.content = ai_response
                         db.session.commit()
-                        
+
                     else:
                         current_app.logger.info(f"🧠 Intent analysis: continue conversation - {intent_result.get('reason', 'Unknown')}")
                 else:
                     current_app.logger.warning("⚠️ Intent analysis service not available")
-                    
+
             except Exception as e:
                 current_app.logger.error(f"❌ Error in intent analysis: {e}")
                 # Fallback to original rating logic
             show_rating = conversation_service.should_show_rating_prompt(conversation_id)
-            
+
             response_data = {
                 'success': True,
                 'user_message': user_message.to_dict(),
                 'assistant_message': assistant_message.to_dict()
             }
-            
+
             # Add rating prompt if conversation just ended
             if show_rating:
                 response_data['show_rating'] = True
                 response_data['rating_message'] = rating_message
-            
+
             # Add confirmation flag if we asked a confirmation question
             if ask_confirmation:
                 response_data['ask_confirmation'] = True
-            
+
             return jsonify(response_data)
-            
+
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f"Error generating AI response: {e}")
             return jsonify({'error': 'Failed to generate AI response'}), 500
-            
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error sending message: {e}")
         return jsonify({'error': 'Failed to send message'}), 500
+
 
 def send_message_stream(conversation_id):
     """Streaming version of send_message using Server-Sent Events."""
@@ -1039,23 +1179,23 @@ def send_message_stream(conversation_id):
         try:
             # Start timing for response time calculation
             start_time = time.time()
-            
+
             data = request.get_json() or {}
             content = data.get('content', '').strip()
             chatbot_id = data.get('chatbot_id')
-            
+
             if not content or not chatbot_id:
                 yield f"data: {json.dumps({'error': 'Invalid request'})}\n\n"
                 return
-            
+
             # Get conversation and chatbot
             conversation = Conversation.query.get(conversation_id)
             chatbot = Chatbot.query.get(chatbot_id) if conversation else None
-            
+
             if not conversation or not chatbot:
                 yield f"data: {json.dumps({'error': 'Not found'})}\n\n"
                 return
-            
+
             # Save user message to database
             user_message = Message(
                 conversation_id=conversation_id,
@@ -1065,35 +1205,40 @@ def send_message_stream(conversation_id):
             )
             db.session.add(user_message)
             db.session.commit()
-            
+
             # Generate AI response with knowledge base search
             from ..services.conversation_service import ConversationService
             conversation_service = ConversationService()
-            
+
             is_greeting = conversation_service.is_greeting(content)
             is_farewell = conversation_service.is_farewell(content)
-            
+
             # Get AI configuration
             config = chatbot.config or {}
-            ai_model = config.get('ai_model', config.get('model', 'gpt-4o'))
-            ai_provider = config.get('ai_provider', 'OpenAI')
-            
+            try:
+                from ..services.model_resolver import resolve_model
+                ai_model, ai_provider = resolve_model(config)
+            except ValueError:
+                ai_model = config.get('ai_model') or config.get('model')
+                ai_provider = config.get('ai_provider')
+
             # Search knowledge base for context
             context_text = ""
             try:
                 if hasattr(current_app, 'vector_service') and current_app.vector_service:
-                    # Get top_k from chatbot config
-                    top_k = config.get('top_k', 10)
-                    
+                    # Get top_k from chatbot config (resolved through the
+                    # single source of truth so .env defaults apply).
+                    top_k = chatbot_defaults.resolve_field(config, 'top_k')
+
                     # Perform semantic vector search
                     search_results = current_app.vector_service.search_similar(
                         query=content,
                         chatbot_id=chatbot.id,
                         limit=top_k
                     )
-                    
+
                     current_app.logger.info(f"🔍 [STREAM] Vector search found {len(search_results)} results")
-                    
+
                     if search_results:
                         # Extract content from search results
                         context_chunks = []
@@ -1102,22 +1247,22 @@ def send_message_stream(conversation_id):
                             if chunk_content:
                                 context_chunks.append(chunk_content)
                                 current_app.logger.info(f"🔍 [STREAM] Chunk {idx+1} preview: {chunk_content[:150]}...")
-                        
+
                         context_text = "\n\n".join(context_chunks)
                         current_app.logger.info(f"🔍 [STREAM] Found {len(context_chunks)} matching chunks, total context length: {len(context_text)}")
                         current_app.logger.info(f"🔍 [STREAM] Full context preview (first 500 chars): {context_text[:500]}")
                 else:
                     current_app.logger.warning(f"🔍 [STREAM] Vector service not available")
-                    
+
             except Exception as e:
                 current_app.logger.error(f"[STREAM] Vector search failed: {e}")
                 context_text = ""
-            
+
             # Determine restriction based on chatbot mode
             restrict_to_knowledge_base = conversation_service.should_restrict_to_knowledge_base(content, config)
-            
+
             current_app.logger.info(f"🌊 [STREAM] Mode: {config.get('mode', 'strict')}, Restrict: {restrict_to_knowledge_base}, Has context: {bool(context_text)}")
-            
+
             # Build system message with knowledge base context
             personality = config.get('personality', {})
             prompts = config.get('prompts', {})
@@ -1127,80 +1272,93 @@ def send_message_stream(conversation_id):
                 tone = personality.get('tone', 'helpful and professional')
                 style = personality.get('style', 'clear and concise')
                 system_message = f"You are a {role}. Respond in a {tone} manner with a {style} style."
-            
-            # Add language detection instruction - upgraded with explicit rules + examples
-            language_instruction = """
-LANGUAGE RULES FOR AI ASSISTANT:
-- You MUST always reply in the language of the user's most recent input.
-- If the user message is in English, your reply must be in English—never auto-translate to any other language.
-- If the user writes in Spanish, reply in Spanish, and so on, for any language (French, German, Italian, Latin, etc).
-- Do NOT rely on previous conversation messages when deciding reply language; ONLY detect the language of the current user message.
-- EXAMPLES:
-    - User: 'What is augmented side?' (English)
-      Assistant: [Reply ONLY in English]
-    - User: '¿Qué es el lado aumentado?' (Spanish)
-      Assistant: [Reply ONLY in Spanish]
-    - User: 'Quid est latus auctum?' (Latin)
-      Assistant: [Reply ONLY in Latin]
-- If you are unsure of the user's language, reply in English.
-ALL of your replies must follow the above rules.
-"""
-            system_message = f"{system_message}\n\n{language_instruction}"
-            
-            # Apply knowledge base restriction rules - STRICT MODE LOCKDOWN
+
+            # All RAG / mode / language logic now lives in prompts.yml
+            from ..services.prompt_service import PromptService
+            prompt_svc = PromptService()
+
+            _mode = config.get('mode', 'strict')  # noqa: F841
+            target_lang = config.get('target_language', 'English')
+            chatbot_name = config.get('name', 'this chatbot')
+            chatbot_role = personality.get('role', 'AI Assistant')
+
             if restrict_to_knowledge_base:
                 if context_text and context_text.strip():
-                    # LOCKED TO KNOWLEDGE BASE - Context available
-                    kb_rule = (
-                        "🔒 STRICT MODE ACTIVATED - KNOWLEDGE BASE LOCKED 🔒\n\n"
-                        "IMPORTANT RULES:\n"
-                        "1. You are LOCKED to the knowledge base provided below - this is your ONLY source of information\n"
-                        "2. You CANNOT use information from your training data or general knowledge\n"
-                        "3. You MUST answer questions using ONLY the information in the context below\n"
-                        "4. You MAY extract, summarize, or explain information from the context to answer questions\n"
-                        "5. If the user asks about something and the context contains ANY relevant information about it, answer using that information\n"
-                        "6. ONLY say 'I don't have information about that in my knowledge base' if the context contains NO information related to the question\n"
-                        "7. DO NOT make up information that isn't in the context\n\n"
-                        "Remember: If the topic is mentioned or discussed in the context, use that information to answer, even if it's not a perfect match."
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.strict',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context=context_text,
                     )
-                    full_system_message = f"{system_message}\n\n{kb_rule}\n\n=== KNOWLEDGE BASE CONTEXT (YOUR ONLY SOURCE) ===\n{context_text}\n=== END OF CONTEXT ===\n\nAnswer the user's question using the information from the context above. Extract and explain relevant details to provide a helpful answer."
                     current_app.logger.info(f"🔒 [STREAM] STRICT MODE LOCKED - Using KB context (length: {len(context_text)})")
                 else:
-                    # LOCKED TO KNOWLEDGE BASE - No context available
-                    kb_rule = (
-"🔒 STRICT MODE ACTIVATED - KNOWLEDGE BASE LOCKED 🔒\n\n" +
-"ABSOLUTE RULES:\n" +
-"1. You are in STRICT MODE - completely locked to the knowledge base\n" +
-"2. NO relevant knowledge base context was found for this question\n" +
-"3. You are FORBIDDEN from using your general knowledge or training data\n" +
-"4. You MUST respond with EXACTLY:\n\n" +
-'I\'m sorry, but I can\'t find an answer to your question in my database right now.\n\n' +
-"5. DO NOT provide any other information whatsoever\n" +
-"6. DO NOT explain what you could answer with general knowledge\n" +
-"7. DO NOT suggest alternative sources\n\n" +
-"RESPOND ONLY with the exact message above. NOTHING ELSE."
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.out_of_scope',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context='',
+                        refusal_message="I'm sorry, but I can't find an answer to your question in my database right now.",
                     )
-                    full_system_message = f"{system_message}\n\n{kb_rule}"
                     current_app.logger.info("🔒 [STREAM] STRICT MODE LOCKED - NO KB context, refusing to answer")
             else:
-                # Permissive mode
                 if context_text and context_text.strip():
-                    full_system_message = f"{system_message}\n\nYou have access to the following knowledge base context. Use it when relevant, but you can also provide general responses:\n\n{context_text}"
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.permissive',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context=context_text,
+                    )
                 else:
-                    full_system_message = f"{system_message}\n\nProvide helpful responses using your general knowledge."
-            
+                    full_system_message = system_message + "\n\n" + prompt_svc.render(
+                        'rag_system.permissive',
+                        chatbot_name=chatbot_name,
+                        chatbot_role=chatbot_role,
+                        target_lang=target_lang,
+                        context='',
+                    )
+
             # Build conversation history
             recent_messages = Message.query.filter_by(conversation_id=conversation_id)\
                 .order_by(Message.created_at.desc())\
                 .limit(10)\
                 .all()
-            
+
             messages = [{"role": "system", "content": full_system_message}]
             for msg in reversed(recent_messages[1:]):  # Skip the just-added user message
                 role = "assistant" if msg.message_type == 'assistant' else "user"
                 messages.append({"role": role, "content": msg.content})
             messages.append({"role": "user", "content": content})
-            
+
+            # === LLM CALL LOGGING (streaming) ===
+            # Log the system prompt, user message, and context that we are
+            # about to send to the LLM so retrieval / RAG issues are
+            # diagnosable from the backend log.
+            current_app.logger.info(
+                f"🤖 LLM CALL (stream): chatbot={chatbot_id} "
+                f"mode={config.get('mode', 'strict')} "
+                f"restrict_to_kb={restrict_to_knowledge_base} "
+                f"history_msgs={len(messages) - 1} "
+                f"system_prompt_len={len(full_system_message)}"
+            )
+            current_app.logger.info(
+                f"📤 SYSTEM PROMPT SENT TO LLM (first 800 chars):\n"
+                f"{full_system_message[:800]}"
+            )
+            current_app.logger.info(
+                f"📤 USER MESSAGE SENT TO LLM: {content!r}"
+            )
+            if context_text:
+                current_app.logger.info(
+                    f"📦 CONTEXT SENT TO LLM ({len(context_text)} chars total, "
+                    f"first 600 chars):\n{context_text[:600]}"
+                )
+            else:
+                current_app.logger.info("📦 CONTEXT SENT TO LLM: (empty)")
+            # === END LLM CALL LOGGING ===
+
             # Generate AI response with real-time streaming
             ai_response = ""
             if is_greeting:
@@ -1217,13 +1375,33 @@ ALL of your replies must follow the above rules.
                 try:
                     # Use streaming generation from LLM service
                     accumulated_response = ""
-                    
+
+                    # For strict-mode refusals (no KB context found), force
+                    # temperature=0.0 and cap max_tokens. This stops the LLM
+                    # from leaking training-data hints.
+                    if (restrict_to_knowledge_base
+                            and not (context_text and context_text.strip())):
+                        call_config = dict(config)
+                        call_config['temperature'] = 0.0
+                        call_config['max_tokens'] = min(
+                            int(call_config.get('max_tokens') or 256),
+                            120
+                        )
+                        current_app.logger.info(
+                            "🔒 [STREAM] Strict refusal path - forcing "
+                            f"temperature=0.0, max_tokens={call_config['max_tokens']}"
+                        )
+                    else:
+                        call_config = config
+
                     if hasattr(current_app.llm_service, 'generate_answer_stream'):
                         for chunk_data in current_app.llm_service.generate_answer_stream(
                             messages=messages,
                             model_name=ai_model,
                             user_id=str(getattr(g, 'user_id', 'anonymous')),
-                            tenant_id=str(chatbot.tenant_id)
+                            tenant_id=str(chatbot.tenant_id),
+                            temperature=call_config.get('temperature', 0.3),
+                            max_tokens=call_config.get('max_tokens', 256),
                         ):
                             chunk_content = chunk_data.get('content', '')
                             if chunk_content:
@@ -1232,19 +1410,19 @@ ALL of your replies must follow the above rules.
                     else:
                         response_data = current_app.llm_service.generate_for_chatbot(
                             messages=messages,
-                            chatbot_config=config,
+                            chatbot_config=call_config,
                             user_id=str(getattr(g, 'user_id', 'anonymous')),
                             tenant_id=str(chatbot.tenant_id)
                         )
                         ai_response = response_data.get('content', '') if response_data else ''
                         accumulated_response = ai_response
-                        
+
                         # Stream in chunks for better UX even if not real-time
                         for chunk in stream_response_chunks(ai_response, chunk_size=1, delay=0.005):
                             yield chunk
-                    
+
                     ai_response = accumulated_response
-                    
+
                 except Exception as e:
                     current_app.logger.error(f"LLM error: {e}")
                     ai_response = "I apologize, but I'm having trouble generating a response right now."
@@ -1254,16 +1432,16 @@ ALL of your replies must follow the above rules.
                 ai_response = "AI service is currently not available. Please try again later."
                 for chunk in stream_response_chunks(ai_response, chunk_size=1, delay=0.005):
                     yield chunk
-            
+
             # Ensure ai_response is a string (not list or other type)
             if isinstance(ai_response, list):
                 ai_response = ' '.join(str(item) for item in ai_response)
             elif not isinstance(ai_response, str):
                 ai_response = str(ai_response)
-            
+
             # Calculate response time
             response_time = time.time() - start_time
-            
+
             # Save assistant message to database after streaming is complete
             assistant_message = Message(
                 conversation_id=conversation_id,
@@ -1276,20 +1454,20 @@ ALL of your replies must follow the above rules.
             )
             db.session.add(assistant_message)
             db.session.commit()
-            
+
             # Debug: Log that we saved response time
             current_app.logger.info(f"💾 Saved message with response_time: {response_time:.2f}s")
-            
+
             current_app.logger.info(f"🌊 Streaming response: {len(ai_response)} chars, type: {type(ai_response)}")
-            
+
             # SIMPLIFIED RATING LOGIC - Show rating immediately on farewell without slow API call
             show_rating = False
             rating_message = 'How would you rate your experience?'
-            
+
             if is_farewell:
                 # Mark conversation as ended
                 conversation_service.detect_conversation_ending(content, conversation_id)
-                
+
                 # Determine personalized rating message based on farewell type
                 content_lower = content.lower()
                 if 'thank' in content_lower:
@@ -1300,10 +1478,10 @@ ALL of your replies must follow the above rules.
                     rating_message = "Great! Before you go, how would you rate our chat?"
                 else:
                     rating_message = "How would you rate your experience with me today?"
-                
+
                 show_rating = True
                 current_app.logger.info(f"🌟 [STREAM] Farewell detected, showing rating prompt")
-            
+
             # Send rating prompt as final message if conversation ended
             if show_rating:
                 rating_data = {
@@ -1313,11 +1491,11 @@ ALL of your replies must follow the above rules.
                 }
                 yield f"data: {json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
                 current_app.logger.info(f"🌟 [STREAM] Sent rating prompt: {rating_message}")
-                
+
         except Exception as e:
             current_app.logger.error(f"Streaming error: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-    
+
     return Response(
         stream_with_context(generate()),
         mimetype='text/event-stream',
@@ -1327,6 +1505,7 @@ ALL of your replies must follow the above rules.
             'Connection': 'keep-alive'
         }
     )
+
 
 @api.route('/conversations/<int:conversation_id>/feedback', methods=['POST'], endpoint='add_conversation_feedback')
 @login_required
@@ -1383,47 +1562,48 @@ ALL of your replies must follow the above rules.
         }
     }
 })
-
 def add_conversation_feedback(conversation_id):
     """Add feedback to a conversation."""
     try:
         data = request.get_json()
-        
+
         if not data or 'feedback_type' not in data:
             return jsonify({'error': 'feedback_type is required'}), 400
-        
+
         # Verify conversation exists and belongs to tenant
         conversation = Conversation.query.filter_by(
-            id=conversation_id, 
+            id=conversation_id,
             tenant_id=g.user_tenant_id
         ).first()
-        
+
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         # Validate rating if provided
         if data['feedback_type'] == 'rating':
             if 'rating' not in data or not (1 <= data['rating'] <= 5):
                 return jsonify({'error': 'Rating must be between 1 and 5'}), 400
-        
+
         # Create feedback record
+        feedback_type = data['feedback_type']
+        rating = data.get('rating')
         feedback = ConversationFeedback(
             conversation_id=conversation_id,
             message_id=data.get('message_id'),
-            rating=data.get('rating'),
-            feedback_type=data['feedback_type'],
+            rating=rating,
+            feedback_type=feedback_type,
             feedback_text=data.get('feedback_text'),
             user_id=g.user_id
         )
-        
+
         db.session.add(feedback)
         db.session.commit()
-        
+
         # Send notification for feedback (non-blocking)
         try:
             from ..services.notification_service import NotificationService
             notification_service = NotificationService()
-            
+
             notification_service.send_feedback_notification(
                 tenant_id=conversation.chatbot.tenant_id,
                 chatbot_id=conversation.chatbot_id,
@@ -1434,13 +1614,13 @@ def add_conversation_feedback(conversation_id):
         except Exception as e:
             # Don't fail the feedback submission if notification fails
             current_app.logger.error(f"Failed to send feedback notification: {str(e)}")
-        
+
         return jsonify({
             'success': True,
             'message': 'Feedback added successfully',
             'feedback': feedback.to_dict()
         }), 201
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error adding feedback: {str(e)}")
@@ -1500,15 +1680,15 @@ def add_satisfaction_rating(conversation_id):
         data = request.get_json() or {}
         rating = data.get('rating')
         feedback = data.get('feedback', '')
-        
+
         if not rating or not isinstance(rating, int) or rating < 1 or rating > 5:
             return jsonify({'error': 'Rating must be an integer between 1 and 5'}), 400
-        
+
         # Get conversation and verify it exists
         conversation = Conversation.query.get(conversation_id)
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         # Check if conversation has ended or if this is a rating submission that should end it
         if not conversation.conversation_ended:
             current_app.logger.info(f"🔍 Conversation {conversation_id} not marked as ended, but rating submitted - marking as ended now")
@@ -1517,24 +1697,24 @@ def add_satisfaction_rating(conversation_id):
             conversation.ended_at = datetime.utcnow()
             db.session.commit()
             current_app.logger.info(f"✅ Conversation {conversation_id} marked as ended for rating submission")
-        
+
         # Check if already rated
         if conversation.satisfaction_rating is not None:
             return jsonify({'error': 'Conversation already rated'}), 400
-        
+
         # Add satisfaction rating using conversation service
         from ..services.conversation_service import ConversationService
         conversation_service = ConversationService()
-        
+
         current_app.logger.info(f"🌟 Attempting to add rating {rating}/5 to conversation {conversation_id}")
-        
+
         success = conversation_service.add_satisfaction_rating(conversation_id, rating, feedback)
-        
+
         if success:
             # Verify the rating was saved
             updated_conversation = Conversation.query.get(conversation_id)
             current_app.logger.info(f"✅ Rating saved! Conversation {conversation_id} now has rating: {updated_conversation.satisfaction_rating}")
-            
+
             return jsonify({
                 'success': True,
                 'message': 'Satisfaction rating added successfully',
@@ -1543,10 +1723,11 @@ def add_satisfaction_rating(conversation_id):
         else:
             current_app.logger.error(f"❌ Failed to save rating for conversation {conversation_id}")
             return jsonify({'error': 'Failed to add satisfaction rating'}), 500
-            
+
     except Exception as e:
         current_app.logger.error(f"Error adding satisfaction rating: {e}")
         return jsonify({'error': 'Failed to add satisfaction rating'}), 500
+
 
 @api.route('/conversations/<int:conversation_id>', methods=['DELETE'], endpoint='delete_conversation')
 @login_required
@@ -1581,35 +1762,36 @@ def delete_conversation(conversation_id):
         if not tenant:
             current_app.logger.error(f"Tenant not found for UUID: {g.user_tenant_id}")
             return jsonify({'error': 'Tenant not found'}), 404
-            
+
         tenant_integer_id = tenant.id
-        
+
         # Get conversation with tenant verification
         conversation = Conversation.query.filter_by(
-            id=conversation_id, 
+            id=conversation_id,
             tenant_id=tenant_integer_id
         ).first()
-        
+
         if not conversation:
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         # Soft delete by marking as deleted
         conversation.status = 'deleted'
         conversation.updated_at = datetime.utcnow()
-        
+
         db.session.commit()
-        
+
         current_app.logger.info(f"✅ Soft deleted conversation {conversation_id}")
-        
+
         return jsonify({
             'success': True,
             'message': 'Conversation deleted successfully'
         })
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error deleting conversation: {str(e)}")
         return jsonify({'error': 'Failed to delete conversation'}), 500
+
 
 @api.route('/conversations/<conversation_id>/status', methods=['PUT'])
 @swag_from({
@@ -1662,16 +1844,16 @@ def update_conversation_status(conversation_id):
     try:
         data = request.get_json() or {}
         new_status = data.get('status')
-        
+
         if not new_status:
             return jsonify({'error': 'status is required'}), 400
-            
+
         if new_status not in ['active', 'inactive', 'archived']:
             return jsonify({'error': 'Invalid status. Must be active, inactive, or archived'}), 400
-        
+
         # Find conversation by ID or session_id
         conversation = None
-        
+
         # Try to find by integer ID first
         try:
             conv_id = int(conversation_id)
@@ -1679,20 +1861,20 @@ def update_conversation_status(conversation_id):
         except ValueError:
             # If not an integer, try to find by session_id
             conversation = Conversation.query.filter_by(session_id=conversation_id).first()
-        
+
         if not conversation:
             current_app.logger.warning(f"Conversation not found: {conversation_id}")
             return jsonify({'error': 'Conversation not found'}), 404
-        
+
         # Update status
         old_status = conversation.status
         conversation.status = new_status
         conversation.updated_at = datetime.utcnow()
-        
+
         db.session.commit()
-        
+
         current_app.logger.info(f"✅ Updated conversation {conversation.id} status: {old_status} -> {new_status}")
-        
+
         return jsonify({
             'success': True,
             'message': f'Conversation status updated to {new_status}',
@@ -1700,7 +1882,7 @@ def update_conversation_status(conversation_id):
             'old_status': old_status,
             'new_status': new_status
         })
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error updating conversation status: {e}")
@@ -1729,9 +1911,9 @@ def cleanup_conversations():
             Conversation.tenant_id == tenant_integer_id,
             Conversation.title.like('%Embed Chat%')
         ).all()
-        
+
         deleted_count = 0
-        
+
         if cleanup_type == 'empty':
             # Delete conversations with no messages
             for conv in embed_conversations:
@@ -1739,7 +1921,7 @@ def cleanup_conversations():
                 if message_count == 0:
                     db.session.delete(conv)
                     deleted_count += 1
-                    
+
         elif cleanup_type == 'old':
             # Delete conversations older than 1 day
             from datetime import timedelta
@@ -1750,7 +1932,7 @@ def cleanup_conversations():
                     Message.query.filter_by(conversation_id=conv.id).delete()
                     db.session.delete(conv)
                     deleted_count += 1
-                    
+
         elif cleanup_type == 'all':
             # Delete ALL embed conversations
             for conv in embed_conversations:
@@ -1758,15 +1940,15 @@ def cleanup_conversations():
                 Message.query.filter_by(conversation_id=conv.id).delete()
                 db.session.delete(conv)
                 deleted_count += 1
-        
+
         db.session.commit()
-        
+
         return jsonify({
             'success': True,
             'message': f'Cleanup completed successfully. Deleted {deleted_count} conversations.',
             'deleted_count': deleted_count
         })
-        
+
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error cleaning up conversations: {str(e)}")

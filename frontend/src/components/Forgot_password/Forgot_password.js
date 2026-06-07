@@ -68,7 +68,7 @@ const ForgotPassword = () => {
     <div className="auth-page">
       <Navbar />
       <div className="auth-container">
-        <div className="auth-card" data-aos="fade-up">
+        <div className="auth-card">
           <div className="auth-back-link">
             <Link to="/login">
               <i className="fas fa-angle-left"></i> Back to Login

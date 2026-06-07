@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useAuth } from '../../contexts/AuthContext';
+import MarkdownMessage from '../common/MarkdownMessage';
 import './ChatWidget.css';
 
 const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversationId: externalConversationId, externalSocket = null, onClose }) => {
@@ -26,7 +27,14 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
 
     const handleClose = () => {
         setIsOpen(false);
-        if (onClose) onClose();
+        // In test mode, do NOT call onClose() — the toggle in Mychatbot
+        // should stay ON. The X button only collapses the chat panel back
+        // to the launcher bubble. The widget is only fully removed when
+        // the user explicitly toggles the test chat OFF (or switches to
+        // a different chatbot's test chat).
+        if (!testMode && onClose) {
+            onClose();
+        }
     };
     // Persist rating prompt across re-mounts (when stream closes and widget rerenders)
     const getRatingStorageKey = (convId) => convId ? `convopilot_rating_prompt_${convId}` : null;
@@ -967,15 +975,26 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                             if (message.message_type === 'assistant' && message.isStreaming && !message.content) {
                                 return null;
                             }
-                            
+                            const isAssistant = message.message_type === 'assistant';
+                            // While the response is actively streaming we keep
+                            // the plain-text renderer to avoid KaTeX / markdown
+                            // re-parsing on every chunk (and to dodge
+                            // half-finished block-fence crashes). As soon as
+                            // streaming finishes we switch to the rich-text
+                            // renderer so headings, code, math, etc. show up.
+                            const showRich = isAssistant && !message.isStreaming;
                             return (
                                 <div
                                     key={index}
                                     className={`message ${message.message_type} ${message.isError ? 'error' : ''}`}
                                 >
                                     <div className="message-content">
-                                        {message.message_type === 'assistant' && <span className="assistant-icon">🤖</span>}
-                                        <span>{message.content || (message.isStreaming ? '...' : '')}</span>
+                                        {isAssistant && <span className="assistant-icon">🤖</span>}
+                                        {showRich && message.content ? (
+                                            <MarkdownMessage content={message.content} />
+                                        ) : (
+                                            <span>{message.content || (message.isStreaming ? '...' : '')}</span>
+                                        )}
                                     </div>
                                 </div>
                             );

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import MarkdownMessage from '../common/MarkdownMessage';
 import './ChatWidget.css';
 
 /**
@@ -302,20 +303,35 @@ const GeneralChatWidget = () => {
                             if (message.role === 'assistant' && message.isStreaming && !message.content) {
                                 return null;
                             }
-                            
+                            const isAssistant = message.role === 'assistant';
+                            // While the response is actively streaming we keep
+                            // the plain-text renderer to avoid KaTeX / markdown
+                            // re-parsing on every chunk. Once streaming is
+                            // done we switch to the rich-text renderer so
+                            // headings, code, math, etc. show up properly.
+                            const showRich = isAssistant && !message.isStreaming;
                             return (
                                 <div
                                     key={index}
                                     className={`message ${message.role} ${message.isError ? 'error' : ''}`}
                                 >
                                     <div className="message-content">
-                                        {message.role === 'assistant' ? (
+                                        {isAssistant && (
                                             <>
                                                 <span className="assistant-icon">🤖</span>
-                                                <div>{renderWithLineBreaks(message.content || (message.isStreaming ? '...' : ''))}</div>
+                                                {showRich && message.content ? (
+                                                    <MarkdownMessage content={message.content} />
+                                                ) : (
+                                                    <div>{renderWithLineBreaks(message.content || (message.isStreaming ? '...' : ''))}</div>
+                                                )}
                                             </>
-                                        ) : (
-                                            <div>{renderWithLineBreaks(message.content)}</div>
+                                        )}
+                                        {!isAssistant && (
+                                            showRich && message.content ? (
+                                                <MarkdownMessage content={message.content} />
+                                            ) : (
+                                                <div>{renderWithLineBreaks(message.content)}</div>
+                                            )
                                         )}
                                     </div>
                                 </div>

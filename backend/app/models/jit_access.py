@@ -32,75 +32,75 @@ class JITAccessRequest(db.Model):
     JIT Access Request - Temporary privilege elevation requests.
     """
     __tablename__ = 'jit_access_requests'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    
+
     # Requester information
     requester_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     requester = db.relationship('User', foreign_keys=[requester_id], backref='access_requests')
-    
+
     # Approver information
     approver_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     approver = db.relationship('User', foreign_keys=[approver_id])
-    
+
     # Access details
     requested_level = db.Column(db.String(50), nullable=False)  # AccessLevel enum
     resource_type = db.Column(db.String(100), nullable=False)  # 'tenant', 'chatbot', 'system', etc.
     resource_id = db.Column(db.Integer, nullable=True)  # Specific resource ID (optional)
-    
+
     # Justification and metadata
     justification = db.Column(db.Text, nullable=False)
     status = db.Column(db.String(50), default='pending', nullable=False)
-    
+
     # Time bounds
     requested_duration = db.Column(db.Integer, nullable=False)  # Duration in minutes
     valid_from = db.Column(db.DateTime, nullable=True)  # When access starts (after approval)
     valid_until = db.Column(db.DateTime, nullable=True)  # When access expires
-    
+
     # Approval details
     approval_reason = db.Column(db.Text, nullable=True)
     rejection_reason = db.Column(db.Text, nullable=True)
-    
+
     # Timestamps
     requested_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     reviewed_at = db.Column(db.DateTime, nullable=True)  # When approved/rejected
     revoked_at = db.Column(db.DateTime, nullable=True)
-    
+
     # Auto-revocation
     auto_revoke = db.Column(db.Boolean, default=True, nullable=False)
-    
+
     def __repr__(self):
         return f'<JITAccessRequest {self.id}: {self.requester_id} -> {self.requested_level}>'
-    
+
     def is_active(self) -> bool:
         """Check if this access grant is currently active."""
         if self.status != 'approved':
             return False
-        
+
         now = datetime.utcnow()
-        
+
         if not self.valid_from or not self.valid_until:
             return False
-        
+
         return self.valid_from <= now < self.valid_until
-    
+
     def is_expired(self) -> bool:
         """Check if this access grant has expired."""
         if self.status != 'approved':
             return False
-        
+
         if not self.valid_until:
             return False
-        
+
         return datetime.utcnow() >= self.valid_until
-    
+
     def time_remaining(self) -> timedelta:
         """Get remaining time for this access grant."""
         if not self.is_active():
             return timedelta(0)
-        
+
         return self.valid_until - datetime.utcnow()
-    
+
     def approve(self, approver_id: int, reason: str = None):
         """Approve this access request."""
         self.status = 'approved'
@@ -109,20 +109,20 @@ class JITAccessRequest(db.Model):
         self.reviewed_at = datetime.utcnow()
         self.valid_from = datetime.utcnow()
         self.valid_until = self.valid_from + timedelta(minutes=self.requested_duration)
-    
+
     def reject(self, approver_id: int, reason: str):
         """Reject this access request."""
         self.status = 'rejected'
         self.approver_id = approver_id
         self.rejection_reason = reason
         self.reviewed_at = datetime.utcnow()
-    
+
     def revoke(self, reason: str = None):
         """Revoke this access grant."""
         self.status = 'revoked'
         self.revoked_at = datetime.utcnow()
         self.rejection_reason = reason or 'Access revoked'
-    
+
     def to_dict(self):
         """Convert to dictionary for API responses."""
         return {
@@ -156,39 +156,39 @@ class JITAccessAuditLog(db.Model):
     Tracks all privileged actions taken during elevated access periods.
     """
     __tablename__ = 'jit_access_audit_logs'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    
+
     # User and access request
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     user = db.relationship('User', backref='jit_audit_logs')
-    
+
     access_request_id = db.Column(db.Integer, db.ForeignKey('jit_access_requests.id'), nullable=False)
     access_request = db.relationship('JITAccessRequest', backref='audit_logs')
-    
+
     # Action details
     action_type = db.Column(db.String(100), nullable=False)  # 'read', 'write', 'delete', 'update', etc.
     resource_type = db.Column(db.String(100), nullable=False)
     resource_id = db.Column(db.Integer, nullable=True)
-    
+
     # Action metadata
     action_description = db.Column(db.Text, nullable=True)
     action_data = db.Column(db.JSON, nullable=True)  # Additional structured data
-    
+
     # Request details
     ip_address = db.Column(db.String(45), nullable=True)
     user_agent = db.Column(db.String(500), nullable=True)
-    
+
     # Result
     success = db.Column(db.Boolean, default=True, nullable=False)
     error_message = db.Column(db.Text, nullable=True)
-    
+
     # Timestamp
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    
+
     def __repr__(self):
         return f'<JITAccessAuditLog {self.id}: {self.user_id} - {self.action_type}>'
-    
+
     def to_dict(self):
         """Convert to dictionary for API responses."""
         return {
@@ -215,41 +215,41 @@ class TemporaryRole(db.Model):
     Automatically expires based on access request duration.
     """
     __tablename__ = 'temporary_roles'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    
+
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     user = db.relationship('User', backref='temporary_roles')
-    
+
     access_request_id = db.Column(db.Integer, db.ForeignKey('jit_access_requests.id'), nullable=False)
     access_request = db.relationship('JITAccessRequest', backref='temporary_roles')
-    
+
     # Role details
     role_name = db.Column(db.String(100), nullable=False)
     permissions = db.Column(db.JSON, nullable=True)  # List of granted permissions
-    
+
     # Time bounds (copied from access request for denormalization)
     valid_from = db.Column(db.DateTime, nullable=False)
     valid_until = db.Column(db.DateTime, nullable=False)
-    
+
     # Status
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     revoked_at = db.Column(db.DateTime, nullable=True)
-    
+
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    
+
     def __repr__(self):
         return f'<TemporaryRole {self.id}: {self.user_id} - {self.role_name}>'
-    
+
     def is_currently_valid(self) -> bool:
         """Check if this temporary role is currently valid."""
         if not self.is_active:
             return False
-        
+
         now = datetime.utcnow()
         return self.valid_from <= now < self.valid_until
-    
+
     def to_dict(self):
         """Convert to dictionary for API responses."""
         return {
@@ -266,4 +266,3 @@ class TemporaryRole(db.Model):
             'created_at': self.created_at.isoformat(),
             'is_currently_valid': self.is_currently_valid()
         }
-

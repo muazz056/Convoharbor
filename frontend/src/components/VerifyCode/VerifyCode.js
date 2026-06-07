@@ -151,7 +151,7 @@ const VerifyCode = () => {
     <div className="auth-page">
       <Navbar />
       <div className="auth-container">
-        <div className="auth-card" data-aos="fade-up">
+        <div className="auth-card">
           <div className="auth-back-link">
             <Link to="/forget_password">
               <i className="fas fa-angle-left"></i> Back

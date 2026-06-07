@@ -12,7 +12,10 @@ class CloudinaryService:
             api_key=app.config['CLOUDINARY_API_KEY'],
             api_secret=app.config['CLOUDINARY_API_SECRET']
         )
-        self.upload_folder = app.config.get('CLOUDINARY_UPLOAD_FOLDER', 'convopilot_temp')
+        # Default to APP_NAME (lowercased) so uploads and cleanup stay in sync
+        self.upload_folder = app.config.get('CLOUDINARY_UPLOAD_FOLDER') or (
+            app.config.get('APP_NAME', 'Convoharbor').lower()
+        )
         self.logger = app.logger
 
     def upload_temp_file(self, file_path):
@@ -39,7 +42,9 @@ class CloudinaryService:
     def delete_file(self, public_id):
         cloudinary.uploader.destroy(public_id, resource_type="raw")
 
-    def cleanup_temp_files(self, prefix="convopilot_temp"):
+    def cleanup_temp_files(self, prefix=None):
+        if prefix is None:
+            prefix = self.upload_folder
         try:
             result = cloudinary.api.resources_by_prefix(
                 prefix,
@@ -49,7 +54,7 @@ class CloudinaryService:
             deleted = 0
             for resource in result.get('resources', []):
                 public_id = resource['public_id']
-                created_at = resource['created_at']
+                resource['created_at']
                 cloudinary.uploader.destroy(public_id, resource_type="raw")
                 deleted += 1
             if deleted:

@@ -1,7 +1,6 @@
 from functools import wraps
 from flask import request, g, current_app, jsonify
 from werkzeug.local import LocalProxy
-from flask_cors import CORS
 from .services.db_service import db_service
 from .models import User
 
@@ -11,8 +10,7 @@ def get_tenant_id():
     if not tenant_id:
         host = request.headers.get('Host', '')
         if '.' in host:
-            subdomain = host.split('.')[0]
-            pass
+            host.split('.')[0]
     return tenant_id
 
 
@@ -89,7 +87,7 @@ def setup_tenant_context():
 
             redis_service = getattr(current_app, 'redis_service', None)
             if redis_service and g.user_id:
-                ip = request.headers.get('X-Forwarded-For', request.remote_addr) or 'unknown'
+                request.headers.get('X-Forwarded-For', request.remote_addr) or 'unknown'
                 allowed, _, _ = redis_service.check_rate_limit(
                     f"endpoint:{g.user_id}:{request.endpoint}",
                     max_requests=200,

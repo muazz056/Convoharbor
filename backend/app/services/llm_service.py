@@ -154,8 +154,14 @@ class LLMService:
         return None
 
     def generate_for_chatbot(self, messages: list, chatbot_config: dict, user_id: str = None, tenant_id: str = None) -> Optional[dict]:
-        temperature = chatbot_config.get('temperature', 0.7)
-        max_tokens = chatbot_config.get('max_tokens', None)
+        # Use the centralized defaults so the .env file is the single
+        # source of truth and the temperature/max_tokens are consistent
+        # across the whole application.
+        from . import chatbot_defaults
+        temperature = chatbot_defaults.resolve_field(chatbot_config, 'temperature')
+        max_tokens = chatbot_config.get('max_tokens')
+        if max_tokens is None:
+            max_tokens = chatbot_defaults.resolve_field(chatbot_config, 'max_tokens')
         ai_model_id = chatbot_config.get('ai_model_id')
         if ai_model_id:
             try:

@@ -1,16 +1,17 @@
 from flask import jsonify, request, g, current_app
 from datetime import datetime, timedelta
-from sqlalchemy import func, and_, or_
+from sqlalchemy import func, or_
 from app import db
 from ..decorators import login_required
 from . import api
 import logging
 
 # Direct imports
-from ..models import Chatbot, DataSource, Tenant
+from ..models import Chatbot, Tenant
 from ..models.conversation import Conversation, Message, ConversationFeedback
 
 logger = logging.getLogger(__name__)
+
 
 @api.route('/analytics/overview', methods=['GET'])
 @login_required
@@ -27,34 +28,34 @@ def get_analytics_overview():
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
         tenant_integer_id = tenant.id
-        
+
         # Get query parameters
         chatbot_id = request.args.get('chatbot_id', type=int)
         days = request.args.get('days', default=30, type=int)
-        
+
         # Calculate date range
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days)
-        
+
         # Base query filters
         base_filters = [
             Conversation.tenant_id == tenant_integer_id,
             Conversation.created_at >= start_date,
             Conversation.status != 'deleted'
         ]
-        
+
         if chatbot_id:
             base_filters.append(Conversation.chatbot_id == chatbot_id)
-        
+
         # Total conversations - count distinct to avoid duplicates
         total_conversations = db.session.query(Conversation.id).filter(*base_filters).distinct().count()
-        
+
         # Active conversations (not archived/inactive)
         active_conversations = db.session.query(Conversation.id).filter(
             *base_filters,
             Conversation.status == 'active'
         ).distinct().count()
-        
+
         # Total messages - use distinct count to avoid duplicates
         total_messages = db.session.query(Message.id).join(Conversation).filter(*base_filters).distinct().count()
         user_messages = db.session.query(Message.id).join(Conversation).filter(
@@ -65,14 +66,14 @@ def get_analytics_overview():
             *base_filters,
             Message.message_type == 'assistant'
         ).distinct().count()
-        
+
         # Average response time
         avg_response_time = db.session.query(func.avg(Message.response_time)).join(Conversation).filter(
             *base_filters,
             Message.message_type == 'assistant',
             Message.response_time.isnot(None)
         ).scalar() or 0
-        
+
         # Feedback metrics - use distinct count (legacy thumbs up/down system)
         total_feedback = db.session.query(ConversationFeedback.id).join(Conversation).filter(*base_filters).distinct().count()
         positive_feedback = db.session.query(ConversationFeedback.id).join(Conversation).filter(
@@ -82,18 +83,18 @@ def get_analytics_overview():
                 ConversationFeedback.rating >= 4
             )
         ).distinct().count()
-        
+
         # Calculate satisfaction rate from conversation ratings (new system)
         rated_conversations = db.session.query(Conversation.id).filter(
             *base_filters,
             Conversation.satisfaction_rating.isnot(None)
         ).distinct().count()
-        
+
         positive_rated_conversations = db.session.query(Conversation.id).filter(
             *base_filters,
             Conversation.satisfaction_rating >= 4  # 4-5 stars considered positive
         ).distinct().count()
-        
+
         # Debug: Check what conversations we have with ratings
         debug_conversations = db.session.query(
             Conversation.id,
@@ -101,20 +102,20 @@ def get_analytics_overview():
             Conversation.created_at,
             Conversation.chatbot_id
         ).filter(*base_filters).all()
-        
+
         current_app.logger.info(f"🔍 Debug: Found {len(debug_conversations)} total conversations in date range")
         rated_debug = [c for c in debug_conversations if c.satisfaction_rating is not None]
         current_app.logger.info(f"🔍 Debug: {len(rated_debug)} conversations have ratings")
-        
+
         for conv in rated_debug:
             current_app.logger.info(f"🔍 Debug: Conversation {conv.id} (chatbot {conv.chatbot_id}) has rating {conv.satisfaction_rating}/5")
-        
+
         # Calculate satisfaction rate based on average rating (improved method)
         if rated_conversations > 0:
             # Get average rating and convert to percentage
             avg_rating_result = db.session.query(func.avg(Conversation.satisfaction_rating)).filter(*base_filters).scalar()
             avg_rating = float(avg_rating_result) if avg_rating_result else 0.0
-            
+
             # Convert 1-5 star rating to percentage (1 star = 20%, 5 stars = 100%)
             satisfaction_rate = (avg_rating / 5.0 * 100)
             current_app.logger.info(f"📊 Using conversation ratings: avg {avg_rating:.2f}/5 = {satisfaction_rate:.1f}%")
@@ -122,9 +123,9 @@ def get_analytics_overview():
         else:
             satisfaction_rate = (positive_feedback / total_feedback * 100) if total_feedback > 0 else 0
             current_app.logger.info(f"📊 Using legacy feedback: {positive_feedback}/{total_feedback} = {satisfaction_rate:.1f}%")
-        
+
         current_app.logger.info(f"📊 Final satisfaction rate: {satisfaction_rate:.1f}%")
-        
+
         # Get conversation end satisfaction ratings
         conversation_satisfaction_query = db.session.query(
             func.avg(Conversation.satisfaction_rating).label('avg_rating'),
@@ -133,10 +134,10 @@ def get_analytics_overview():
             *base_filters,
             Conversation.satisfaction_rating.isnot(None)
         ).first()
-        
+
         avg_conversation_rating = float(conversation_satisfaction_query.avg_rating) if conversation_satisfaction_query.avg_rating else 0.0
         conversation_rating_count = conversation_satisfaction_query.rating_count or 0
-        
+
         # Top chatbots by message count - simplified query first
         top_chatbots_base = db.session.query(
             Chatbot.id,
@@ -149,7 +150,7 @@ def get_analytics_overview():
         ).group_by(Chatbot.id, Chatbot.name).order_by(
             func.count(Message.id).desc()
         ).limit(5).all()
-        
+
         # Calculate satisfaction rates for each chatbot separately
         top_chatbots = []
         for bot in top_chatbots_base:
@@ -163,27 +164,16 @@ def get_analytics_overview():
                 Conversation.created_at >= start_date,
                 Conversation.status != 'deleted'
             ).first()
-            
-            # Get positive ratings count separately (4-5 stars)
-            positive_ratings = db.session.query(
-                func.count(Conversation.id)
-            ).filter(
-                Conversation.tenant_id == tenant_integer_id,
-                Conversation.chatbot_id == bot.id,
-                Conversation.created_at >= start_date,
-                Conversation.status != 'deleted',
-                Conversation.satisfaction_rating >= 4
-            ).scalar() or 0
-            
+
             # Calculate satisfaction rate
             satisfaction_rate = 0
             rated_conversations = satisfaction_data.rated_conversations or 0
             avg_rating = float(satisfaction_data.avg_rating) if satisfaction_data.avg_rating else 0.0
-            
+
             if rated_conversations > 0:
                 # Convert 1-5 star rating to percentage (1 star = 20%, 5 stars = 100%)
                 satisfaction_rate = (avg_rating / 5.0 * 100)
-            
+
             top_chatbots.append({
                 'id': bot.id,
                 'name': bot.name,
@@ -192,13 +182,13 @@ def get_analytics_overview():
                 'avg_rating': round(float(satisfaction_data.avg_rating), 2) if satisfaction_data.avg_rating else 0.0,
                 'rated_conversations': rated_conversations
             })
-        
+
         # Platform distribution
         platform_stats = db.session.query(
             Conversation.source_platform,
             func.count(Conversation.id).label('count')
         ).filter(*base_filters).group_by(Conversation.source_platform).all()
-        
+
         # AI Provider usage
         provider_stats = db.session.query(
             Message.provider,
@@ -208,7 +198,7 @@ def get_analytics_overview():
             Message.message_type == 'assistant',
             Message.provider.isnot(None)
         ).group_by(Message.provider).all()
-        
+
         return jsonify({
             'success': True,
             'data': {
@@ -259,13 +249,14 @@ def get_analytics_overview():
                 ]
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting analytics overview: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Failed to get analytics overview'
         }), 500
+
 
 @api.route('/analytics/timeseries', methods=['GET'])
 @login_required
@@ -279,26 +270,26 @@ def get_analytics_timeseries():
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
         tenant_integer_id = tenant.id
-        
+
         # Get query parameters
         chatbot_id = request.args.get('chatbot_id', type=int)
         days = request.args.get('days', default=30, type=int)
         granularity = request.args.get('granularity', default='day')
-        
+
         # Calculate date range
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days)
-        
+
         # Base query filters
         base_filters = [
             Conversation.tenant_id == tenant_integer_id,
             Conversation.created_at >= start_date,
             Conversation.status != 'deleted'
         ]
-        
+
         if chatbot_id:
             base_filters.append(Conversation.chatbot_id == chatbot_id)
-        
+
         # Determine date truncation based on granularity
         if granularity == 'hour':
             date_trunc = func.date_trunc('hour', Conversation.created_at)
@@ -306,19 +297,19 @@ def get_analytics_timeseries():
             date_trunc = func.date_trunc('week', Conversation.created_at)
         else:  # day
             date_trunc = func.date_trunc('day', Conversation.created_at)
-        
+
         # Conversations over time - use distinct count
         conversations_timeseries = db.session.query(
             date_trunc.label('period'),
             func.count(func.distinct(Conversation.id)).label('count')
         ).filter(*base_filters).group_by('period').order_by('period').all()
-        
+
         # Messages over time - use distinct count
         messages_timeseries = db.session.query(
             func.date_trunc(granularity, Message.created_at).label('period'),
             func.count(func.distinct(Message.id)).label('count')
         ).join(Conversation).filter(*base_filters).group_by('period').order_by('period').all()
-        
+
         # Response times over time
         response_times = db.session.query(
             func.date_trunc(granularity, Message.created_at).label('period'),
@@ -328,7 +319,7 @@ def get_analytics_timeseries():
             Message.message_type == 'assistant',
             Message.response_time.isnot(None)
         ).group_by('period').order_by('period').all()
-        
+
         # Debug: Log response time data to help diagnose empty graph
         current_app.logger.info(f"📊 Response time debug: Found {len(response_times)} data points for tenant {tenant_integer_id}")
         if not response_times:
@@ -337,13 +328,13 @@ def get_analytics_timeseries():
                 *base_filters,
                 Message.message_type == 'assistant'
             ).count()
-            
+
             messages_with_times = db.session.query(Message).join(Conversation).filter(
                 *base_filters,
                 Message.message_type == 'assistant',
                 Message.response_time.isnot(None)
             ).count()
-            
+
             current_app.logger.warning(
                 f"⚠️ No response time data found. Total assistant messages: {total_messages}, "
                 f"Messages with response times: {messages_with_times}"
@@ -351,7 +342,7 @@ def get_analytics_timeseries():
         else:
             for rt in response_times[:3]:  # Log first 3 entries
                 current_app.logger.info(f"📊 Sample data - Period: {rt.period}, Avg Response: {rt.avg_response_time:.2f}s")
-        
+
         return jsonify({
             'success': True,
             'data': {
@@ -383,13 +374,15 @@ def get_analytics_timeseries():
                 ]
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting timeseries analytics: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Failed to get timeseries analytics'
         }), 500
+
+
 @api.route('/analytics/performance', methods=['GET'])
 @login_required
 def get_performance_analytics():
@@ -402,24 +395,24 @@ def get_performance_analytics():
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
         tenant_integer_id = tenant.id
-        
+
         chatbot_id = request.args.get('chatbot_id', type=int)
         days = request.args.get('days', default=30, type=int)
-        
+
         # Calculate date range
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days)
-        
+
         # Base query filters
         base_filters = [
             Conversation.tenant_id == tenant_integer_id,
             Conversation.created_at >= start_date,
             Conversation.status != 'deleted'
         ]
-        
+
         if chatbot_id:
             base_filters.append(Conversation.chatbot_id == chatbot_id)
-        
+
         # Response time statistics by provider
         provider_performance = db.session.query(
             Message.provider,
@@ -432,7 +425,7 @@ def get_performance_analytics():
             Message.message_type == 'assistant',
             Message.response_time.isnot(None)
         ).group_by(Message.provider).all()
-        
+
         # Token usage by provider
         token_usage = db.session.query(
             Message.provider,
@@ -444,7 +437,7 @@ def get_performance_analytics():
             Message.message_type == 'assistant',
             Message.token_count.isnot(None)
         ).group_by(Message.provider).all()
-        
+
         # Model usage statistics
         model_usage = db.session.query(
             Message.model_used,
@@ -458,7 +451,7 @@ def get_performance_analytics():
         ).group_by(Message.model_used, Message.provider).order_by(
             func.count(Message.id).desc()
         ).all()
-        
+
         return jsonify({
             'success': True,
             'data': {
@@ -492,13 +485,14 @@ def get_performance_analytics():
                 ]
             }
         })
-        
+
     except Exception as e:
         logger.error(f"Error getting performance analytics: {str(e)}")
         return jsonify({
             'success': False,
             'error': 'Failed to get performance analytics'
         }), 500
+
 
 @api.route('/health/live', methods=['GET'])
 def health_live():
@@ -508,6 +502,7 @@ def health_live():
         'timestamp': datetime.utcnow().isoformat(),
         'service': 'convopilot-api'
     })
+
 
 @api.route('/health/ready', methods=['GET'])
 def health_ready():
@@ -544,9 +539,9 @@ def export_analytics():
         tenant = Tenant.query.filter_by(tenant_id=g.user_tenant_id).first()
         if not tenant:
             return jsonify({'error': 'Tenant not found'}), 404
-        
+
         tenant_id = tenant.id
-        
+
         # Get export parameters
         data = request.get_json() or {}
         export_params = {
@@ -556,33 +551,33 @@ def export_analytics():
             'include_performance': data.get('include_performance', True),
             'chatbot_id': data.get('chatbot_id')
         }
-        
+
         # Validate format
         if export_params['format'] not in ['json', 'csv']:
             return jsonify({'error': 'Invalid format. Supported formats: json, csv'}), 400
-        
+
         # Queue export task
         try:
             from ..tasks.analytics_tasks import generate_analytics_export
             task = generate_analytics_export.delay(tenant_id, export_params)
-            
+
             return jsonify({
                 'message': 'Analytics export queued successfully',
                 'task_id': task.id,
                 'export_params': export_params,
                 'estimated_completion': '2-5 minutes'
             })
-            
+
         except ImportError:
             # Fallback if Celery not available - generate immediately
             from flask import current_app
             current_app.logger.warning("Celery not available, generating export synchronously")
-            
+
             # Generate export data immediately
             overview_response = get_analytics_overview()
             timeseries_response = get_analytics_timeseries() if export_params['include_timeseries'] else None
             performance_response = get_performance_analytics() if export_params['include_performance'] else None
-            
+
             export_data = {
                 'tenant_id': tenant_id,
                 'generated_at': datetime.utcnow().isoformat(),
@@ -591,27 +586,27 @@ def export_analytics():
                 'timeseries': timeseries_response.get_json() if timeseries_response and hasattr(timeseries_response, 'get_json') else (timeseries_response[0] if timeseries_response else None),
                 'performance': performance_response.get_json() if performance_response and hasattr(performance_response, 'get_json') else (performance_response[0] if performance_response else None)
             }
-            
+
             if export_params['format'] == 'csv':
                 # Convert to CSV format
                 import csv
                 import io
-                
+
                 output = io.StringIO()
                 writer = csv.writer(output)
-                
+
                 # Write headers
                 writer.writerow(['Metric', 'Value', 'Category'])
-                
+
                 # Write overview data
                 if export_data['overview']:
                     for key, value in export_data['overview'].items():
                         if isinstance(value, (int, float, str)):
                             writer.writerow([key, value, 'overview'])
-                
+
                 export_content = output.getvalue()
                 output.close()
-                
+
                 return jsonify({
                     'message': 'Analytics export generated successfully',
                     'format': 'csv',
@@ -625,7 +620,7 @@ def export_analytics():
                     'format': 'json',
                     'data': export_data
                 })
-        
+
     except Exception as e:
         from flask import current_app
         current_app.logger.error(f"Failed to export analytics: {str(e)}")

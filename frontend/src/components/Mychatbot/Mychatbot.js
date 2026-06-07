@@ -8,8 +8,8 @@ import { chatbotService } from '../../services/chatbot.service';
 import { dataSourceService } from '../../services/datasource.service';
 import widgetService from '../../services/widget.service';
 import EmbedScriptModal from '../EmbedScriptModal/EmbedScriptModal';
-import ChatWidget from '../ChatWidget/ChatWidget';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTestChat } from '../../contexts/TestChatContext';
 
 
   const Mychatbot = () => {
@@ -20,7 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
   const [isEmbedOpen, setIsEmbedOpen] = useState(false);
   const [embedScript, setEmbedScript] = useState('');
   const [selectedChatbotId, setSelectedChatbotId] = useState(null);
-  const [activeTestChatId, setActiveTestChatId] = useState(null);
+  const { activeTestChatId, toggleTestChat } = useTestChat();
     const { hasPermission, user } = useAuth();
     const navigate = useNavigate();
 
@@ -130,13 +130,11 @@ import { useAuth } from '../../contexts/AuthContext';
     };
 
     const handleTestChatToggle = (chatbotId) => {
-      // If clicking the same toggle, close it
-      // If clicking a different one, switch to it (closes the previous automatically)
-      setActiveTestChatId(prevId => prevId === chatbotId ? null : chatbotId);
-    };
-
-    const handleTestChatClose = () => {
-      setActiveTestChatId(null);
+      // Toggling the same one turns it OFF; toggling a different one
+      // switches to it (the previous test chat is implicitly closed).
+      // The actual <ChatWidget> is mounted globally in AppLayout so it
+      // persists across page navigation.
+      toggleTestChat(chatbotId);
     };
 
     const getStatusBadge = (status) => {
@@ -296,21 +294,13 @@ import { useAuth } from '../../contexts/AuthContext';
                 </div>
               )}
             </div>
-        <EmbedScriptModal 
+        <EmbedScriptModal
           isOpen={isEmbedOpen} 
           onClose={() => setIsEmbedOpen(false)} 
           script={embedScript}
           chatbotId={selectedChatbotId}
           publicAppUrl={process.env.REACT_APP_PUBLIC_APP_URL || window.location.origin}
         />
-        {activeTestChatId && (
-          <ChatWidget
-            key={activeTestChatId}
-            chatbotId={activeTestChatId}
-            testMode={true}
-            onClose={handleTestChatClose}
-          />
-        )}
       </>
     );
   };

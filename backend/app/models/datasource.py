@@ -9,7 +9,7 @@ class DataSource(db.Model):
     Represents a data source (uploaded file or crawled URL) for a chatbot
     """
     __tablename__ = 'data_sources'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     tenant_id = db.Column(db.Integer, db.ForeignKey('tenants.id'), nullable=False)
     chatbot_id = db.Column(db.Integer, db.ForeignKey('chatbots.id'), nullable=True)  # Optional association
@@ -21,6 +21,6 @@ class DataSource(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     processed_at = db.Column(db.DateTime)
-    
+
     def __repr__(self):
         return f'<DataSource {self.source_name}>'

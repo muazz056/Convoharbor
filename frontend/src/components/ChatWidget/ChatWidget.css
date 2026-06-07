@@ -641,7 +641,11 @@ button.rating-star.selected:hover,
   animation: messageSlideIn 0.3s ease-out;
 }
 
-/* Assistant Messages - Left Side */
+/* Assistant Messages - Left Side, subtle bubble (NOT plain text)
+   The user prefers a visible bubble for the AI response, so we
+   keep a light-gray rounded card with no border and no shadow.
+   The bubble wraps the whole .message-content container; inner
+   <p>/<ul>/<pre>/etc. all stay transparent. */
 .message.assistant {
   justify-content: flex-start;
   padding-right: 0;
@@ -649,46 +653,20 @@ button.rating-star.selected:hover,
 
 .message.assistant p {
   margin: 0;
-  padding: 10px 14px;
-  background: #ffffff;
-  color: #333333;
-  border-radius: 18px;
-  border-bottom-left-radius: 4px;
-  max-width: 80%;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  max-width: 100%;
   word-wrap: break-word;
-  line-height: 1.4;
-  font-size: 14px;
-  position: relative;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  border: 1px solid #e5e7eb;
+  line-height: 1.6;
+  font-size: inherit;
+  position: static;
 }
 
-.message.assistant p::before {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -8px;
-  width: 0;
-  height: 0;
-  border: 8px solid transparent;
-  border-right-color: #ffffff;
-  border-bottom: 0;
-  margin-bottom: -8px;
-}
-
-.message.assistant p::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -9px;
-  width: 0;
-  height: 0;
-  border: 9px solid transparent;
-  border-right-color: #e5e7eb;
-  border-bottom: 0;
-  margin-bottom: -9px;
-  z-index: -1;
-}
+/* Bubble arrows removed: assistant message is no longer a bubble. */
 
 /* User Messages - Right Side */
 .message.user {
@@ -724,54 +702,32 @@ button.rating-star.selected:hover,
   margin-bottom: -8px;
 }
 
-/* New bubble styling targeting actual markup (.message-content) */
+/* Message content layout — assistant has a SUBTLE bubble (light
+   gray, rounded, no border, no shadow); user keeps the blue
+   coloured bubble. Both share the same flex layout. */
 .message .message-content {
-  display: inline-flex;
+  display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px 14px;
-  border-radius: 18px;
-  max-width: 80%;
-  line-height: 1.4;
+  padding: 6px 0;
+  max-width: 100%;
+  line-height: 1.6;
   font-size: 14px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
 }
 
 .message.assistant .message-content {
-  background: #ffffff;
-  color: #333333;
-  border: 1px solid #e5e7eb;
-  border-bottom-left-radius: 4px;
-  position: relative;
+  background: #f3f4f6;
+  color: #1f2937;
+  border: 0;
+  border-radius: 14px;
+  padding: 12px 16px;
+  box-shadow: none;
+  position: static;
   margin-left: 0;
+  max-width: 80%;
 }
 
-.message.assistant .message-content::before {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -8px;
-  width: 0;
-  height: 0;
-  border: 8px solid transparent;
-  border-right-color: #ffffff;
-  border-bottom: 0;
-  margin-bottom: -8px;
-}
-
-.message.assistant .message-content::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -9px;
-  width: 0;
-  height: 0;
-  border: 9px solid transparent;
-  border-right-color: #e5e7eb;
-  border-bottom: 0;
-  margin-bottom: -9px;
-  z-index: -1;
-}
+/* Arrow removed: assistant message is no longer a bubble. */
 
 .message.user .message-content {
   background: #007bff;
@@ -800,7 +756,11 @@ button.rating-star.selected:hover,
   user-select: none;
 }
 
-/* Override global ChatHistory .message-content !important rules */
+/* Override global ChatHistory .message-content !important rules.
+   User messages keep their blue bubble. Assistant messages now
+   also have a subtle light-gray bubble (rounded, no border, no
+   shadow) so the AI response reads as a card just like the user
+   message — but in a neutral colour. */
 .chat-window .message.user .message-content {
   background: #007bff !important;
   color: #ffffff !important;
@@ -808,14 +768,24 @@ button.rating-star.selected:hover,
   margin-left: auto !important;
   margin-right: 0 !important;
   text-align: left !important;
+  border-radius: 18px;
+  padding: 10px 14px;
+  max-width: 80%;
+  display: inline-flex;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.12);
 }
 
 .chat-window .message.assistant .message-content {
-  background: #ffffff !important;
-  color: #333333 !important;
-  border: 1px solid #e5e7eb !important;
-  margin-right: auto !important;
+  background: #f3f4f6 !important;
+  color: #1f2937 !important;
+  border: none !important;
+  border-radius: 14px !important;
+  padding: 12px 16px !important;
+  box-shadow: none !important;
   margin-left: 0 !important;
+  margin-right: auto !important;
+  max-width: 80%;
+  display: inline-flex;
 }
 
 /* Message Animation */
@@ -830,45 +800,24 @@ button.rating-star.selected:hover,
   }
 }
 
-/* Typing Indicator - Real Chat Style */
+/* Typing Indicator - subtle dots inside the assistant bubble */
 .message.assistant.typing-indicator p {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  padding: 12px 16px;
+  background: transparent;
+  border: 0;
+  padding: 4px 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  border-radius: 18px;
-  border-bottom-left-radius: 4px;
-  max-width: 80px;
+  box-shadow: none;
+  border-radius: 0;
+  max-width: none;
 }
 
-.message.assistant.typing-indicator p::before {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -8px;
-  width: 0;
-  height: 0;
-  border: 8px solid transparent;
-  border-right-color: #ffffff;
-  border-bottom: 0;
-  margin-bottom: -8px;
-}
-
-.message.assistant.typing-indicator p::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: -9px;
-  width: 0;
-  height: 0;
-  border: 9px solid transparent;
-  border-right-color: #e5e7eb;
-  border-bottom: 0;
-  margin-bottom: -9px;
-  z-index: -1;
+.chat-window .message.assistant.typing-indicator .message-content {
+  background: #f3f4f6 !important;
+  border-radius: 14px !important;
+  padding: 10px 14px !important;
+  display: inline-flex;
 }
 
 .typing-indicator {

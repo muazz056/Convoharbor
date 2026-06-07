@@ -2,13 +2,14 @@ from flask import current_app, url_for
 from flask_oauthlib.client import OAuth
 from typing import Dict, Any, Optional
 
+
 class OAuthService:
     """Service for handling OAuth authentication with various providers."""
-    
+
     def __init__(self):
         self.oauth = OAuth(current_app)
         self._setup_providers()
-        
+
     def _setup_providers(self):
         """Initialize OAuth providers."""
         # Google OAuth
@@ -25,7 +26,7 @@ class OAuthService:
             access_token_url='https://accounts.google.com/o/oauth2/token',
             authorize_url='https://accounts.google.com/o/oauth2/auth'
         )
-        
+
         # GitHub OAuth
         self.github = self.oauth.remote_app(
             'github',
@@ -38,7 +39,7 @@ class OAuthService:
             access_token_url='https://github.com/login/oauth/access_token',
             authorize_url='https://github.com/login/oauth/authorize'
         )
-        
+
         # Microsoft OAuth
         self.microsoft = self.oauth.remote_app(
             'microsoft',
@@ -51,7 +52,7 @@ class OAuthService:
             access_token_url='https://login.microsoftonline.com/common/oauth2/v2.0/token',
             authorize_url='https://login.microsoftonline.com/common/oauth2/v2.0/authorize'
         )
-        
+
     def get_provider(self, provider_name: str):
         """Get OAuth provider by name."""
         providers = {
@@ -60,17 +61,17 @@ class OAuthService:
             'microsoft': self.microsoft
         }
         return providers.get(provider_name)
-        
+
     def get_callback_url(self, provider: str) -> str:
         """Get OAuth callback URL for a provider."""
         return url_for('api.oauth_callback', provider=provider, _external=True)
-        
+
     async def get_user_info(self, provider: str, resp: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Get user information from OAuth provider."""
         provider_app = self.get_provider(provider)
         if not provider_app:
             return None
-            
+
         if provider == 'google':
             user_info = provider_app.get('userinfo')
             if user_info.status == 200:
@@ -82,7 +83,7 @@ class OAuthService:
                     'provider': 'google',
                     'provider_id': user_info.data['id']
                 }
-                
+
         elif provider == 'github':
             user_info = provider_app.get('user')
             emails = provider_app.get('user/emails')
@@ -100,7 +101,7 @@ class OAuthService:
                     'provider': 'github',
                     'provider_id': str(user_info.data['id'])
                 }
-                
+
         elif provider == 'microsoft':
             user_info = provider_app.get('me')
             if user_info.status == 200:
@@ -112,5 +113,5 @@ class OAuthService:
                     'provider': 'microsoft',
                     'provider_id': user_info.data['id']
                 }
-                
+
         return None

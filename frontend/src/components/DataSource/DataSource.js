@@ -25,6 +25,8 @@ import { useAuth } from '../../contexts/AuthContext';
     const [crawling, setCrawling] = useState(false);
     const [pollingSources, setPollingSources] = useState(new Set());
     const [crawlProgress, setCrawlProgress] = useState({}); // Track progress by data_source_id
+    const [embeddingProgress, setEmbeddingProgress] = useState({}); // Rate-limit-aware progress by data_source_id
+    const [countdowns, setCountdowns] = useState({}); // Countdown timers (seconds remaining) by data_source_id
 
     const fileInputRef = useRef(null);
 
@@ -126,16 +128,88 @@ import { useAuth } from '../../contexts/AuthContext';
         loadDataSources();
       };
 
+      // Listen for embedding / data-source stage progress (rate-limit
+      // aware). Emitted by the backend's _run_ai_processing thread on
+      // every batch boundary and whenever the rate limiter has to wait.
+      const handleDatasourceProgress = (data) => {
+        const sid = data.data_source_id;
+        if (sid == null) return;
+        setEmbeddingProgress(prev => ({
+          ...prev,
+          [sid]: {
+            stage: data.stage,
+            total_chunks: data.total_chunks,
+            chunks_embedded: data.chunks_embedded,
+            total_batches: data.total_batches,
+            current_batch: data.current_batch,
+            provider: data.provider,
+            rate_limit_per_minute: data.rate_limit_per_minute,
+            rate_used: data.rate_used,
+            rate_capacity: data.rate_capacity,
+            wait_seconds: data.wait_seconds,
+            error: data.error,
+            updated_at: data.updated_at,
+          },
+        }));
+        if (data.stage === 'completed' || data.stage === 'failed') {
+          // Refresh the list so the row leaves the active list, and
+          // clear the countdown for this source.
+          setCountdowns(prev => {
+            const next = { ...prev };
+            delete next[sid];
+            return next;
+          });
+          if (data.stage === 'completed') {
+            loadDataSources();
+          } else if (data.stage === 'failed') {
+            loadDataSources();
+          }
+        } else if (data.wait_seconds && data.wait_seconds > 0) {
+          // Seed a fresh countdown from the backend's estimate.
+          setCountdowns(prev => ({
+            ...prev,
+            [sid]: Math.ceil(data.wait_seconds),
+          }));
+        }
+      };
+
       socket.on('crawl_progress', handleCrawlProgress);
       socket.on('crawl_completed', handleCrawlCompleted);
       socket.on('crawl_failed', handleCrawlFailed);
+      socket.on('datasource_progress', handleDatasourceProgress);
 
       return () => {
         socket.off('crawl_progress', handleCrawlProgress);
         socket.off('crawl_completed', handleCrawlCompleted);
         socket.off('crawl_failed', handleCrawlFailed);
+        socket.off('datasource_progress', handleDatasourceProgress);
       };
     }, []);
+
+    // Tick down the rate-limit countdown every second so the user sees
+    // a live "resets in 32s" message while the embedding thread is
+    // blocked waiting for a Gemini quota slot.
+    useEffect(() => {
+      const activeIds = Object.keys(countdowns).filter(id => (countdowns[id] || 0) > 0);
+      if (activeIds.length === 0) return undefined;
+      const tick = setInterval(() => {
+        setCountdowns(prev => {
+          const next = { ...prev };
+          let changed = false;
+          for (const id of activeIds) {
+            const v = (prev[id] || 0) - 1;
+            if (v <= 0) {
+              delete next[id];
+            } else {
+              next[id] = v;
+            }
+            changed = true;
+          }
+          return changed ? next : prev;
+        });
+      }, 1000);
+      return () => clearInterval(tick);
+    }, [countdowns]);
 
     const loadChatbots = async () => {
       try {
@@ -506,6 +580,102 @@ import { useAuth } from '../../contexts/AuthContext';
                               ❌ Error: {source.metadata.error}
                             </div>
                           )}
+
+                          {/* === RATE-LIMIT-AWARE EMBEDDING PROGRESS ===
+                              Shown whenever the backend is actively processing
+                              this source and we have a progress block (either
+                              from the initial status response or a live
+                              WebSocket update). Covers waiting-for-quota,
+                              in-flight batches, and completion. */}
+                          {(() => {
+                            const live = embeddingProgress[source.id];
+                            const meta = source.metadata || {};
+                            const progress = source.progress || live || null;
+                            const stage = (live && live.stage) || meta.progress_stage;
+                            const isActive = ['pending', 'processing', 'uploading'].includes(source.status);
+                            if (!isActive && !progress) return null;
+                            if (!stage) return null;
+                            if (['completed', 'failed'].includes(stage) && !isActive) return null;
+
+                            const total = (live && live.total_chunks) ?? progress?.total_chunks ?? meta.total_chunks;
+                            const done = (live && live.chunks_embedded) ?? progress?.chunks_embedded ?? meta.chunks_embedded;
+                            const totalBatches = (live && live.total_batches) ?? progress?.total_batches ?? meta.total_batches;
+                            const currentBatch = (live && live.current_batch) ?? progress?.current_batch ?? meta.current_batch;
+                            const provider = (live && live.provider) ?? progress?.provider ?? meta.provider ?? meta.embed_provider;
+                            const rateUsed = (live && live.rate_used) ?? progress?.rate_used ?? meta.rate_used;
+                            const rateCap = (live && live.rate_capacity) ?? progress?.rate_capacity ?? meta.rate_capacity;
+                            const rateLimit = (live && live.rate_limit_per_minute) ?? progress?.rate_limit_per_minute ?? meta.rate_limit_per_minute;
+                            const remaining = (countdowns[source.id] || 0);
+
+                            const percent = total && done != null ? Math.min(100, Math.round((done / total) * 100)) : null;
+                            const isRateLimited = stage === 'embedding' && remaining > 0;
+                            const stageLabel = {
+                              extracting: 'Extracting text',
+                              chunking: 'Chunking content',
+                              embedding: isRateLimited ? 'Waiting for rate limit' : 'Generating embeddings',
+                              storing: 'Storing vectors',
+                              completed: 'Completed',
+                              failed: 'Failed',
+                            }[stage] || stage;
+
+                            return (
+                              <div className={`embedding-progress ${isRateLimited ? 'is-waiting' : ''} stage-${stage}`}>
+                                <div className="embedding-progress-header">
+                                  <span className="embedding-stage">
+                                    {isRateLimited ? '⏳' : '⚙️'} {stageLabel}
+                                    {totalBatches > 1 && currentBatch != null && (
+                                      <> &middot; batch {Math.min(currentBatch + (isRateLimited ? 0 : 1), totalBatches)}/{totalBatches}</>
+                                    )}
+                                    {provider && (
+                                      <span className="embedding-provider"> via {provider}</span>
+                                    )}
+                                  </span>
+                                  {isRateLimited && (
+                                    <span className="embedding-countdown">
+                                      resets in <strong>{remaining}s</strong>
+                                    </span>
+                                  )}
+                                </div>
+
+                                {total != null && done != null && (
+                                  <div className="embedding-bar-wrap">
+                                    <div className="embedding-bar">
+                                      <div
+                                        className="embedding-bar-fill"
+                                        style={{ width: `${percent}%` }}
+                                      />
+                                    </div>
+                                    <div className="embedding-bar-meta">
+                                      <span>{done}/{total} chunks</span>
+                                      {percent != null && <span>{percent}%</span>}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {rateLimit && (
+                                  <div className="embedding-quota">
+                                    Gemini rate limit:&nbsp;
+                                    <strong>
+                                      {rateUsed != null && rateCap != null
+                                        ? `${rateUsed}/${rateCap}`
+                                        : `0/${rateLimit}`}
+                                    </strong>
+                                    &nbsp;requests in the current 60s window
+                                    {totalBatches > 1 && (
+                                      <> &middot; max {Math.min(totalBatches * 100, total || 0)}/min sustained</>
+                                    )}
+                                  </div>
+                                )}
+
+                                {isRateLimited && totalBatches > 1 && (
+                                  <div className="embedding-hint">
+                                    ⏸ Paused &mdash; free tier is capped at {rateLimit || 100} requests/min.
+                                    Resuming automatically as soon as the quota window resets.
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {source.status === 'completed' && source.metadata?.processed_chunks && (
                             <div className="processing-stats">
                               ✅ Processed: {source.metadata.processed_chunks} chunks

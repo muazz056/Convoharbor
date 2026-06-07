@@ -7,7 +7,6 @@ Provides REST API for Just-In-Time access management.
 
 from flask import request, jsonify, g, current_app
 from flasgger import swag_from
-from datetime import datetime
 from . import api
 from ..decorators import login_required, super_admin_required
 from ..services.jit_access_service import JITAccessService
@@ -63,16 +62,16 @@ def request_jit_access():
     """Request temporary elevated access."""
     try:
         data = request.get_json()
-        
+
         if not data:
             return jsonify({'error': 'No data provided'}), 400
-        
+
         # Validate required fields
         required_fields = ['requested_level', 'resource_type', 'justification']
         for field in required_fields:
             if field not in data:
                 return jsonify({'error': f'Missing required field: {field}'}), 400
-        
+
         # Create access request
         access_request = JITAccessService.request_access(
             requester_id=g.user_id,
@@ -82,12 +81,12 @@ def request_jit_access():
             duration_minutes=data.get('duration_minutes', 60),
             resource_id=data.get('resource_id')
         )
-        
+
         return jsonify({
             'message': 'Access request created successfully',
             'request': access_request.to_dict()
         }), 201
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -116,23 +115,23 @@ def list_jit_access_requests():
     """List JIT access requests."""
     try:
         status_filter = request.args.get('status')
-        
+
         # Super admins can see all requests, others only their own
         if g.is_super_admin:
             query = JITAccessRequest.query
         else:
             query = JITAccessRequest.query.filter_by(requester_id=g.user_id)
-        
+
         if status_filter:
             query = query.filter_by(status=status_filter)
-        
+
         requests_list = query.order_by(JITAccessRequest.requested_at.desc()).all()
-        
+
         return jsonify({
             'requests': [req.to_dict() for req in requests_list],
             'total': len(requests_list)
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error listing JIT access requests: {e}")
         return jsonify({'error': 'Failed to list access requests'}), 500
@@ -152,13 +151,13 @@ def get_jit_access_request(request_id):
     """Get details of a specific JIT access request."""
     try:
         access_request = JITAccessRequest.query.get_or_404(request_id)
-        
+
         # Check permissions
         if not g.is_super_admin and access_request.requester_id != g.user_id:
             return jsonify({'error': 'Access denied'}), 403
-        
+
         return jsonify(access_request.to_dict()), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error getting JIT access request: {e}")
         return jsonify({'error': 'Failed to get access request'}), 500
@@ -194,18 +193,18 @@ def approve_jit_access_request(request_id):
     """Approve a JIT access request."""
     try:
         data = request.get_json() or {}
-        
+
         access_request = JITAccessService.approve_request(
             request_id=request_id,
             approver_id=g.user_id,
             approval_reason=data.get('approval_reason')
         )
-        
+
         return jsonify({
             'message': 'Access request approved',
             'request': access_request.to_dict()
         }), 200
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -245,21 +244,21 @@ def reject_jit_access_request(request_id):
     """Reject a JIT access request."""
     try:
         data = request.get_json()
-        
+
         if not data or 'rejection_reason' not in data:
             return jsonify({'error': 'rejection_reason is required'}), 400
-        
+
         access_request = JITAccessService.reject_request(
             request_id=request_id,
             approver_id=g.user_id,
             rejection_reason=data['rejection_reason']
         )
-        
+
         return jsonify({
             'message': 'Access request rejected',
             'request': access_request.to_dict()
         }), 200
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -297,17 +296,17 @@ def revoke_jit_access(request_id):
     """Revoke an active JIT access grant."""
     try:
         data = request.get_json() or {}
-        
+
         access_request = JITAccessService.revoke_access(
             request_id=request_id,
             reason=data.get('reason')
         )
-        
+
         return jsonify({
             'message': 'Access revoked',
             'request': access_request.to_dict()
         }), 200
-        
+
     except ValueError as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
@@ -329,12 +328,12 @@ def get_active_jit_accesses():
     """Get active JIT accesses for current user."""
     try:
         accesses = JITAccessService.get_active_accesses(user_id=g.user_id)
-        
+
         return jsonify({
             'active_accesses': accesses,
             'total': len(accesses)
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error getting active JIT accesses: {e}")
         return jsonify({'error': 'Failed to get active accesses'}), 500
@@ -379,19 +378,18 @@ def get_jit_audit_logs():
         user_id = request.args.get('user_id', type=int)
         access_request_id = request.args.get('access_request_id', type=int)
         limit = request.args.get('limit', default=100, type=int)
-        
+
         logs = JITAccessService.get_audit_logs(
             user_id=user_id,
             access_request_id=access_request_id,
             limit=min(limit, 1000)  # Cap at 1000
         )
-        
+
         return jsonify({
             'logs': logs,
             'total': len(logs)
         }), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"Error getting JIT audit logs: {e}")
         return jsonify({'error': 'Failed to get audit logs'}), 500
-

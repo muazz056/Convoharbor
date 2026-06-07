@@ -3,33 +3,53 @@ from flask import current_app
 
 _language_cache = {}
 
+
+def _prompt_svc():
+    from .prompt_service import PromptService
+    return PromptService()
+
+
 def _is_placeholder_key(api_key):
     return not api_key or api_key.startswith('your-')
 
-def _configure_llm(api_key=None, model_name="gemini-1.5-flash"):
+
+def _resolve_model_name(provider: str = "gemini") -> str | None:
+    """Return the first active model name configured by Super Admin for the provider."""
+    try:
+        from .model_resolver import get_default_llm_model
+        model_name, _ = get_default_llm_model(provider=provider)
+        return model_name
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _configure_llm(api_key=None, model_name=None, provider: str = "gemini"):
     api_key = api_key or current_app.config.get('GEMINI_API_KEY')
     if not api_key or _is_placeholder_key(api_key):
         return None
     genai.configure(api_key=api_key)
 
-    model_names_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0-flash-exp",
-        "gemini-1.5-flash-002",
-        "gemini-1.5-pro-002",
-        "gemini-pro"
-    ]
-
-    for name in model_names_to_try:
+    # Prefer the model that the Super Admin has configured for the provider.
+    primary = model_name or _resolve_model_name(provider=provider)
+    if primary:
         try:
-            model = genai.GenerativeModel(name, generation_config={"temperature": 0.0})
-            return model
-        except Exception:
-            continue
+            return genai.GenerativeModel(primary, generation_config={"temperature": 0.0})
+        except Exception:  # noqa: BLE001
+            current_app.logger.warning(f"⚠️ Could not initialize configured Gemini model: {primary}")
 
-    model = genai.GenerativeModel("gemini-pro", generation_config={"temperature": 0.0})
-    return model
+    # As a last resort, try any other active model from the Super Admin's table.
+    try:
+        from .model_resolver import get_active_models
+        for ai_model in get_active_models(provider=provider):
+            try:
+                return genai.GenerativeModel(ai_model.model_name, generation_config={"temperature": 0.0})
+            except Exception:  # noqa: BLE001
+                continue
+    except Exception:  # noqa: BLE001
+        pass
+
+    return None
+
 
 def detect_language_with_llm(text_sample: str, api_key: str = None) -> str:
     sanitized_sample = text_sample.strip()
@@ -47,11 +67,9 @@ def detect_language_with_llm(text_sample: str, api_key: str = None) -> str:
         return 'und'
 
     try:
-        prompt = (
-            "Analyze the following text and identify its primary language. "
-            "Respond with ONLY the two-letter ISO 639-1 language code. "
-            "For example: 'en' for English, 'es' for Spanish, 'fa' for Farsi (Persian) and in same manner for other languages. "
-            f"Text: \"{sanitized_sample}\""
+        prompt = _prompt_svc().render(
+            'language_detection',
+            text=sanitized_sample,
         )
         response = model.generate_content(prompt)
         if not response or not response.text:
@@ -69,21 +87,21 @@ def detect_language_with_llm(text_sample: str, api_key: str = None) -> str:
         current_app.logger.error(f"Gemini API call for language detection failed: {e}")
         return 'und'
 
+
 def translate_text(text: str, target_language: str, source_language: str = "auto", api_key: str = None) -> str | None:
     if not text.strip():
         return None
 
-    model = _configure_llm(api_key=api_key, model_name='gemini-1.5-flash')
+    model = _configure_llm(api_key=api_key, model_name=None)
     if not model:
         return None
 
     try:
-        prompt = (
-            "You are an expert multilingual translator. Your task is to translate the user's query for a semantic search system. "
-            "It is crucial that the core *concept* of the query is preserved. "
-            f"Translate the following text from '{source_language}' to '{target_language}'. "
-            "Respond ONLY with the translated text and nothing else. "
-            f"\n\nText to translate: \"{text}\""
+        prompt = _prompt_svc().render(
+            'translation',
+            text=text,
+            source_lang=source_language,
+            target_lang=target_language,
         )
 
         response = model.generate_content(prompt)

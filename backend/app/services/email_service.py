@@ -32,9 +32,16 @@ def send_email(subject, recipients, html_body, text_body=None):
         current_app.logger.warning(f"Brevo email failed, falling back to SMTP: {e}")
 
     # Fall back to Flask-Mail SMTP
-    sender = current_app.config.get('MAIL_USERNAME') or current_app.config.get('MAIL_DEFAULT_SENDER')
+    sender = (
+        current_app.config.get('MAIL_USERNAME')
+        or current_app.config.get('MAIL_DEFAULT_SENDER')
+        or current_app.config.get('BREVO_SENDER_EMAIL')
+    )
     if not sender:
-        sender = current_app.config.get('BREVO_SENDER_EMAIL', f"noreply@{_get_app_name().lower()}.com")
+        current_app.logger.error(
+            "No email sender configured. Set BREVO_SENDER_EMAIL in .env"
+        )
+        return
     msg = Message(
         subject=subject,
         sender=sender,

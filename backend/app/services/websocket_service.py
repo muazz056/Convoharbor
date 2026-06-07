@@ -1,9 +1,14 @@
-from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
+from flask_socketio import SocketIO, emit, join_room
+try:
+    from flask_socketio import request as socketio_request  # noqa: F401
+except Exception:  # noqa: BLE001
+    socketio_request = None
 from flask import current_app
 from datetime import datetime
 import jwt
-from ..models import Conversation, Message, Chatbot, Tenant
+from ..models import Conversation, Message, Chatbot
 from .. import db
+
 
 class WebSocketService:
     def __init__(self):
@@ -30,7 +35,13 @@ class WebSocketService:
                 current_app.logger.info(f"WS connection attempt on {ns}, auth: {auth}")
                 user_id = None
                 payload = None
-                
+                # `flask_socketio.request.sid` is the per-connection id; do not use `self.socketio.sid`
+                sid = None
+                if socketio_request is not None:
+                    sid = getattr(socketio_request, 'sid', None)
+                    if not sid and hasattr(socketio_request, 'environ'):
+                        sid = socketio_request.environ.get('socketio', {}).get('sid') if socketio_request.environ else None
+
                 if require_jwt:
                     token = None
                     # socket.io v4 sends auth payload from client
@@ -47,13 +58,14 @@ class WebSocketService:
                 else:
                     # Public namespace - no JWT required
                     current_app.logger.info(f"Public namespace connection, no JWT required")
-                
-                self._active_connections[self.socketio.sid] = {
-                    'connected_at': datetime.utcnow(),
-                    'namespace': ns,
-                    'user_id': user_id,
-                    'payload': payload
-                }
+
+                if sid:
+                    self._active_connections[sid] = {
+                        'connected_at': datetime.utcnow(),
+                        'namespace': ns,
+                        'user_id': user_id,
+                        'payload': payload
+                    }
                 current_app.logger.info(f"WS connected successfully on {ns}, user_id: {user_id}")
                 emit('connection_established', {'status': 'connected', 'namespace': ns})
                 return True
@@ -63,7 +75,9 @@ class WebSocketService:
 
         @self.socketio.on('disconnect', namespace=ns)
         def handle_disconnect():
-            self._active_connections.pop(self.socketio.sid, None)
+            sid = getattr(socketio_request, 'sid', None)
+            if sid:
+                self._active_connections.pop(sid, None)
 
         @self.socketio.on('join_conversation', namespace=ns)
         def handle_join_conversation(data):
@@ -182,5 +196,6 @@ class WebSocketService:
         except Exception as e:
             current_app.logger.debug(f"JWT verification failed: {e}")
             return None
+
 
 websocket_service = WebSocketService()

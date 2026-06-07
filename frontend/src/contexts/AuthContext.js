@@ -38,6 +38,7 @@ export const AuthProvider = ({ children }) => {
     // Clear all auth data
     localStorage.removeItem('authToken');
     localStorage.removeItem('userData');
+    localStorage.removeItem('test_chat_active_id');
     setUser(null);
     setIsAuthenticated(false);
     
@@ -219,9 +220,10 @@ export const AuthProvider = ({ children }) => {
       // Clear local storage and state regardless of response
       localStorage.removeItem('authToken');
       localStorage.removeItem('userData');
+      localStorage.removeItem('test_chat_active_id');
       setUser(null);
       setIsAuthenticated(false);
-      
+
       // Clear token validation interval
       if (tokenValidationInterval.current) {
         clearInterval(tokenValidationInterval.current);
@@ -239,15 +241,16 @@ export const AuthProvider = ({ children }) => {
       // Still clear everything even if request fails
       localStorage.removeItem('authToken');
       localStorage.removeItem('userData');
+      localStorage.removeItem('test_chat_active_id');
       setUser(null);
       setIsAuthenticated(false);
-      
+
       // Clear token validation interval
       if (tokenValidationInterval.current) {
         clearInterval(tokenValidationInterval.current);
         tokenValidationInterval.current = null;
       }
-      
+
       return { success: true };
     }
   };

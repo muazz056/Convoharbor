@@ -1,9 +1,10 @@
 # app/api/debug.py
 
-from flask import request, current_app, jsonify, g
+from flask import request, current_app, jsonify
 from flask_cors import cross_origin
 from . import api
 from ..decorators import login_required
+from ..services.prompt_service import PromptService
 from flasgger.utils import swag_from
 import os
 
@@ -40,11 +41,11 @@ def debug_gemini():
         'connection_test': {},
         'simple_test': {}
     }
-    
+
     try:
         # 1. Check API key configuration
         current_app.logger.info("🔍 [DEBUG] Starting Gemini API debug...")
-        
+
         gemini_key = current_app.config.get('GEMINI_API_KEY')
         debug_results['api_key_status'] = {
             'configured': bool(gemini_key),
@@ -53,9 +54,9 @@ def debug_gemini():
             'is_placeholder': gemini_key.startswith('your-') if gemini_key else True,
             'env_var_set': 'GEMINI_API_KEY' in os.environ
         }
-        
+
         current_app.logger.info(f"🔑 [DEBUG] API Key Status: {debug_results['api_key_status']}")
-        
+
         # 2. Check LLM service initialization
         llm_service = getattr(current_app, 'llm_service', None)
         debug_results['gemini_status'] = {
@@ -63,20 +64,20 @@ def debug_gemini():
             'gemini_client_exists': hasattr(llm_service, 'gemini_client') and llm_service.gemini_client is not None if llm_service else False,
             'gemini_available': llm_service.is_available('gemini') if llm_service else False
         }
-        
+
         current_app.logger.info(f"🤖 [DEBUG] Gemini Service Status: {debug_results['gemini_status']}")
-        
+
         # 3. Test basic connection
         if llm_service and llm_service.is_available('gemini'):
             try:
                 current_app.logger.info("🔗 [DEBUG] Testing Gemini connection...")
-                
+
                 test_response = llm_service.generate_answer(
                     prompt="Hello! Please respond with exactly: 'Gemini API is working correctly.'",
                     provider='gemini',
                     temperature=0.0
                 )
-                
+
                 debug_results['connection_test'] = {
                     'success': True,
                     'response': test_response,
@@ -84,9 +85,9 @@ def debug_gemini():
                     'contains_expected': 'Gemini API is working correctly' in test_response if test_response else False,
                     'is_demo_mode': 'demo mode' in test_response.lower() if test_response else False
                 }
-                
+
                 current_app.logger.info(f"✅ [DEBUG] Connection test result: {test_response[:100]}...")
-                
+
             except Exception as e:
                 debug_results['connection_test'] = {
                     'success': False,
@@ -101,12 +102,12 @@ def debug_gemini():
                 'llm_service_available': llm_service is not None,
                 'gemini_available': llm_service.is_available('gemini') if llm_service else False
             }
-        
+
         # 4. Test web extraction capability
         if debug_results['connection_test'].get('success'):
             try:
                 current_app.logger.info("🕷️ [DEBUG] Testing web extraction capability...")
-                
+
                 sample_html = """
                 <html>
                 <head><title>Test Page</title></head>
@@ -122,29 +123,17 @@ def debug_gemini():
                 </body>
                 </html>
                 """
-                
-                extraction_prompt = f"""
-Extract meaningful content from the following website HTML. Focus on the main content that would be useful for a chatbot's knowledge base.
 
-**Instructions:**
-1. Extract the main content, articles, or information from the page
-2. Ignore navigation menus, advertisements, footers, sidebars, and other non-essential elements
-3. Preserve the structure and formatting of important content
-4. Include headings, paragraphs, lists, and other structured content
-5. Remove HTML tags and provide clean, readable text
+                extraction_prompt = (
+                    PromptService().render('debug_extraction', html=sample_html)
+                )
 
-**HTML Content:**
-{sample_html}
-
-**Extracted Content:**
-"""
-                
                 extraction_response = llm_service.generate_answer(
                     prompt=extraction_prompt,
                     provider='gemini',
                     temperature=0.1
                 )
-                
+
                 debug_results['simple_test'] = {
                     'success': True,
                     'extracted_content': extraction_response,
@@ -155,9 +144,9 @@ Extract meaningful content from the following website HTML. Focus on the main co
                     'excludes_footer': 'Footer information' not in extraction_response if extraction_response else True,
                     'is_demo_mode': 'demo mode' in extraction_response.lower() if extraction_response else False
                 }
-                
+
                 current_app.logger.info(f"🎯 [DEBUG] Extraction test successful: {len(extraction_response)} chars extracted")
-                
+
             except Exception as e:
                 debug_results['simple_test'] = {
                     'success': False,
@@ -170,24 +159,24 @@ Extract meaningful content from the following website HTML. Focus on the main co
                 'success': False,
                 'error': 'Skipped due to connection test failure'
             }
-        
+
         # 5. Overall assessment
         overall_status = 'working' if (
-            debug_results['api_key_status']['configured'] and
-            not debug_results['api_key_status']['is_placeholder'] and
-            debug_results['gemini_status']['gemini_available'] and
-            debug_results['connection_test'].get('success') and
-            not debug_results['connection_test'].get('is_demo_mode') and
-            debug_results['simple_test'].get('success')
+            debug_results['api_key_status']['configured']
+            and not debug_results['api_key_status']['is_placeholder']
+            and debug_results['gemini_status']['gemini_available']
+            and debug_results['connection_test'].get('success')
+            and not debug_results['connection_test'].get('is_demo_mode')
+            and debug_results['simple_test'].get('success')
         ) else 'failed'
-        
+
         debug_results['overall_status'] = overall_status
         debug_results['summary'] = _generate_debug_summary(debug_results)
-        
+
         current_app.logger.info(f"🏁 [DEBUG] Overall Gemini status: {overall_status}")
-        
+
         return jsonify(debug_results), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"❌ [DEBUG] Debug endpoint failed: {e}")
         return jsonify({
@@ -201,7 +190,7 @@ def _generate_debug_summary(results):
     """Generate a human-readable summary of debug results"""
     issues = []
     recommendations = []
-    
+
     # Check API key
     if not results['api_key_status']['configured']:
         issues.append("❌ Gemini API key not configured")
@@ -212,7 +201,7 @@ def _generate_debug_summary(results):
     elif not results['api_key_status']['env_var_set']:
         issues.append("⚠️ GEMINI_API_KEY environment variable not found")
         recommendations.append("Ensure .env file is loaded and contains GEMINI_API_KEY")
-    
+
     # Check service availability
     if not results['gemini_status']['llm_service_exists']:
         issues.append("❌ LLM service not initialized")
@@ -220,7 +209,7 @@ def _generate_debug_summary(results):
     elif not results['gemini_status']['gemini_available']:
         issues.append("❌ Gemini client not available in LLM service")
         recommendations.append("Check Gemini client initialization in LLM service")
-    
+
     # Check connection
     if not results['connection_test'].get('success'):
         issues.append("❌ Gemini API connection failed")
@@ -229,13 +218,13 @@ def _generate_debug_summary(results):
     elif results['connection_test'].get('is_demo_mode'):
         issues.append("⚠️ Gemini is running in demo mode")
         recommendations.append("Check API key validity and quota limits")
-    
+
     # Check extraction capability
     if not results['simple_test'].get('success'):
         issues.append("❌ Web content extraction test failed")
         if 'error' in results['simple_test']:
             recommendations.append(f"Extraction error: {results['simple_test']['error']}")
-    
+
     if not issues:
         return {
             'status': '✅ All tests passed',
@@ -254,7 +243,7 @@ def _generate_debug_summary(results):
 
 @api.route('/debug/test-url', methods=['POST'])
 @cross_origin()
-@login_required  
+@login_required
 @swag_from({
     'tags': ['Debug'],
     'summary': 'Test web extraction on a specific URL',
@@ -298,28 +287,28 @@ def _generate_debug_summary(results):
 def debug_test_url():
     """Test web extraction on a specific URL"""
     data = request.get_json()
-    
+
     if not data or 'url' not in data:
         return jsonify({'error': 'URL is required'}), 400
-    
+
     url = data['url']
-    
+
     try:
         current_app.logger.info(f"🧪 [DEBUG] Testing URL extraction: {url}")
-        
+
         # Import and test the web extraction service
         from ..services.web_extraction_service import WebExtractionService
-        
+
         web_extractor = WebExtractionService()
         result = web_extractor.extract_content_from_url(url, "Debug test extraction")
-        
+
         debug_result = {
             'url': url,
             'timestamp': current_app.config.get('TESTING_TIME', 'N/A'),
             'extraction_result': result,
             'overall_success': result.get('success', False)
         }
-        
+
         if result.get('success'):
             debug_result['content_preview'] = result['content'][:500] + '...' if len(result['content']) > 500 else result['content']
             debug_result['content_stats'] = {
@@ -327,11 +316,11 @@ def debug_test_url():
                 'word_count': len(result['content'].split()) if result['content'] else 0,
                 'line_count': result['content'].count('\n') if result['content'] else 0
             }
-        
+
         current_app.logger.info(f"🎯 [DEBUG] URL test completed: success={result.get('success')}")
-        
+
         return jsonify(debug_result), 200
-        
+
     except Exception as e:
         current_app.logger.error(f"❌ [DEBUG] URL test failed: {e}")
         return jsonify({

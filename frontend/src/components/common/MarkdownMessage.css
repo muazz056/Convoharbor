@@ -1,0 +1,251 @@
+/* =============================================================
+   MarkdownMessage — ChatGPT-style rich text for chat responses
+   Everything flows inline. No card / bubble treatments on
+   individual blocks. Just typography + very subtle accents.
+   ============================================================= */
+.markdown-message {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #1f2937;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+  background: transparent !important;
+}
+
+/* Defensive: guarantee NO inline element ever gets a stray
+   background (selection, first-child/last-child, hover, theme
+   highlight, etc.) so first/last paragraphs read the same as
+   the middle ones. Real code blocks (<pre>) keep their dark
+   background — that's the only intentional exception. */
+.markdown-message,
+.markdown-message p,
+.markdown-message ul,
+.markdown-message ol,
+.markdown-message li,
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4,
+.markdown-message h5,
+.markdown-message h6,
+.markdown-message blockquote,
+.markdown-message table,
+.markdown-message thead,
+.markdown-message tbody,
+.markdown-message tr,
+.markdown-message th,
+.markdown-message td,
+.markdown-message hr,
+.markdown-message span,
+.markdown-message div,
+.markdown-message a,
+.markdown-message strong,
+.markdown-message em,
+.markdown-message del,
+.markdown-message .markdown-partial {
+  background-color: transparent !important;
+  background-image: none !important;
+  color: #1f2937;
+}
+
+/* Streaming state: the raw <span> wrapper used while chunks are
+   still arriving also has to inherit dark text — some themes
+   push body color to white, which would otherwise leak into
+   the assistant message. */
+.message.assistant .message-content > span,
+.message.assistant .message-content > .markdown-message,
+.message.assistant .message-content > .markdown-message * {
+  color: #1f2937 !important;
+}
+
+/* Tighten the natural rhythm so headings don't read as detached
+   bubbles — they just sit inline with the surrounding text. */
+.markdown-message > *:first-child { margin-top: 0; }
+.markdown-message > *:last-child  { margin-bottom: 0; }
+
+.markdown-message p {
+  margin: 0.4em 0;
+}
+.markdown-message p:first-child { margin-top: 0; }
+.markdown-message p:last-child  { margin-bottom: 0; }
+
+/* --- Headings -----------------------------------------------
+   No background, no border, no padding. Just larger, bolder
+   text — same look as ChatGPT. */
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4,
+.markdown-message h5,
+.markdown-message h6 {
+  margin: 1em 0 0.35em 0;
+  font-weight: 700;
+  line-height: 1.3;
+  color: inherit;
+}
+.markdown-message h1:first-child,
+.markdown-message h2:first-child,
+.markdown-message h3:first-child { margin-top: 0; }
+.markdown-message h1 { font-size: 1.45em; }
+.markdown-message h2 { font-size: 1.25em; }
+.markdown-message h3 { font-size: 1.1em; }
+.markdown-message h4 { font-size: 1.0em; }
+.markdown-message h5 { font-size: 0.95em; }
+.markdown-message h6 { font-size: 0.9em; color: var(--text-secondary, #4b5563); }
+
+/* --- Inline ------------------------------------------------- */
+.markdown-message strong { font-weight: 700; }
+.markdown-message em { font-style: italic; }
+.markdown-message del { color: var(--text-secondary, #6b7280); }
+
+.markdown-message a {
+  color: var(--primary, #2563eb);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.markdown-message a:hover { opacity: 0.85; }
+
+/* Lists — ChatGPT shows them as compact bullets with tight
+   spacing and no background. */
+.markdown-message ul,
+.markdown-message ol {
+  margin: 0.4em 0;
+  padding-left: 1.5em;
+}
+.markdown-message li { margin: 0.2em 0; }
+.markdown-message li > p { margin: 0.15em 0; }
+.markdown-message li::marker { color: var(--text-secondary, #6b7280); }
+
+/* Blockquote — single subtle left bar. No background fill. */
+.markdown-message blockquote {
+  margin: 0.6em 0;
+  padding: 0 0 0 0.85em;
+  border-left: 3px solid var(--text-secondary, #d1d5db);
+  color: var(--text-secondary, #4b5563);
+  background: transparent;
+}
+
+.markdown-message hr {
+  border: 0;
+  border-top: 1px solid var(--border-light, #e5e7eb);
+  margin: 1em 0;
+}
+
+/* --- Inline code ---------------------------------------------
+   Just a faint gray pill. No visible border. */
+.markdown-message code {
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 0.88em;
+  background: rgba(0, 0, 0, 0.06);
+  color: #c026d3;
+  padding: 0.10em 0.35em;
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+
+/* --- Fenced code blocks --------------------------------------
+   ChatGPT-style: dark code area with no visible "card" border.
+   Rounded corners on the outer container, no border, just
+   background and padding. */
+.markdown-message pre {
+  margin: 0.6em 0;
+  padding: 0.85em 1em;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.86em;
+  line-height: 1.5;
+  border: 0;
+}
+.markdown-message pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+  white-space: pre;
+}
+
+/* highlight.js colours tuned for the dark code background */
+.markdown-message .hljs-keyword,
+.markdown-message .hljs-selector-tag,
+.markdown-message .hljs-built_in,
+.markdown-message .hljs-tag { color: #c084fc; }
+.markdown-message .hljs-string,
+.markdown-message .hljs-attr { color: #86efac; }
+.markdown-message .hljs-number,
+.markdown-message .hljs-literal { color: #fbbf24; }
+.markdown-message .hljs-comment { color: #94a3b8; font-style: italic; }
+.markdown-message .hljs-function,
+.markdown-message .hljs-title { color: #93c5fd; }
+.markdown-message .hljs-variable,
+.markdown-message .hljs-name { color: #fca5a5; }
+
+/* --- Tables -------------------------------------------------
+   Minimal ChatGPT-style: thin borders, no zebra striping, no
+   header background fill. */
+.markdown-message table {
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  width: 100%;
+  max-width: 100%;
+  font-size: 0.9em;
+  display: block;
+  overflow-x: auto;
+}
+.markdown-message th,
+.markdown-message td {
+  border-top: 1px solid var(--border-light, #e5e7eb);
+  border-bottom: 1px solid var(--border-light, #e5e7eb);
+  padding: 0.4em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown-message th {
+  font-weight: 600;
+}
+
+/* --- Math (KaTeX) ------------------------------------------- */
+.markdown-message .katex-display {
+  margin: 0.6em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.1em 0;
+}
+.markdown-message .katex { font-size: 1.05em; }
+
+/* --- Images ------------------------------------------------- */
+.markdown-message img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 0.4em 0;
+}
+
+/* --- Task list --------------------------------------------- */
+.markdown-message input[type='checkbox'] {
+  margin-right: 0.4em;
+  vertical-align: middle;
+}
+
+/* --- Streaming-partial fallback ----------------------------- */
+.markdown-message.is-partial .markdown-partial {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border: 0;
+}
+
+/* --- Compact variant for inline messages ------------------- */
+.markdown-message.is-compact {
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.markdown-message.is-compact pre { font-size: 0.8em; }
+.markdown-message.is-compact h1 { font-size: 1.2em; }
+.markdown-message.is-compact h2 { font-size: 1.1em; }

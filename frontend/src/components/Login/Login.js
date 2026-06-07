@@ -1,5 +1,5 @@
 import "./Login.css";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 import { validateEmail } from "../../utils/validation";
@@ -14,9 +14,16 @@ const Login = () => {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
+
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
+
+  // If user is already logged in, redirect to dashboard
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/chatbot', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -81,7 +88,7 @@ const Login = () => {
     <div className="auth-page">
       <Navbar />
       <div className="auth-container">
-        <div className="auth-card" data-aos="fade-up">
+        <div className="auth-card">
           <div className="auth-header">
             <h1 className="auth-title">Welcome Back</h1>
             <p className="auth-subtitle">Sign in to your account</p>
