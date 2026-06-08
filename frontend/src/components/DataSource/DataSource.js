@@ -7,11 +7,13 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { dataSourceService } from '../../services/datasource.service';
 import { chatbotService } from '../../services/chatbot.service';
 import { useAuth } from '../../contexts/AuthContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 
   const DataSource = () => {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { hasPermission } = useAuth();
+    const { socket } = useWebSocket();
     
     const [dataSources, setDataSources] = useState([]);
     const [chatbots, setChatbots] = useState([]);
@@ -86,8 +88,9 @@ import { useAuth } from '../../contexts/AuthContext';
 
     // WebSocket listeners for crawl updates
     useEffect(() => {
-      const { socket } = window;
       if (!socket) return;
+
+      console.log('🔌 DataSource: registering WebSocket listeners');
 
       // Listen for crawl progress updates
       const handleCrawlProgress = (data) => {
@@ -162,8 +165,6 @@ import { useAuth } from '../../contexts/AuthContext';
           },
         }));
         if (data.stage === 'completed' || data.stage === 'failed') {
-          // Refresh the list so the row leaves the active list, and
-          // clear the countdown for this source.
           setCountdowns(prev => {
             const next = { ...prev };
             delete next[sid];
@@ -175,7 +176,6 @@ import { useAuth } from '../../contexts/AuthContext';
             loadDataSources();
           }
         } else if (data.wait_seconds && data.wait_seconds > 0) {
-          // Seed a fresh countdown from the backend's estimate.
           setCountdowns(prev => ({
             ...prev,
             [sid]: Math.ceil(data.wait_seconds),
@@ -187,6 +187,7 @@ import { useAuth } from '../../contexts/AuthContext';
       const handleCrawlLog = (data) => {
         const sid = data.data_source_id;
         if (sid == null) return;
+        console.log('📝 Crawl log:', data);
         setCrawlLogs(prev => ({
           ...prev,
           [sid]: [
@@ -213,7 +214,7 @@ import { useAuth } from '../../contexts/AuthContext';
         socket.off('datasource_progress', handleDatasourceProgress);
         socket.off('crawl_log', handleCrawlLog);
       };
-    }, []);
+    }, [socket]);
 
     // Tick down the rate-limit countdown every second so the user sees
     // a live "resets in 32s" message while the embedding thread is
@@ -260,15 +261,15 @@ import { useAuth } from '../../contexts/AuthContext';
         const response = await dataSourceService.getDataSources(filters);
         const allSources = response.data_sources || [];
         
-        // Only show pending/processing/failed sources (completed ones are in Knowledge Base)
+        // Only show active sources (completed ones are in Knowledge Base)
         const activeSources = allSources.filter(s => 
-          s.status === 'pending' || s.status === 'processing' || s.status === 'uploading' || s.status === 'failed'
+          s.status === 'pending' || s.status === 'processing' || s.status === 'uploading' || s.status === 'crawling' || s.status === 'failed'
         );
         setDataSources(activeSources);
         
         // Start polling for processing sources
         const processingSources = activeSources
-          .filter(source => source.status === 'processing' || source.status === 'pending' || source.status === 'uploading')
+          .filter(source => source.status === 'processing' || source.status === 'pending' || source.status === 'uploading' || source.status === 'crawling')
           .map(source => source.id);
         
         if (processingSources.length > 0) {

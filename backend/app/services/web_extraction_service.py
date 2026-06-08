@@ -2691,28 +2691,75 @@ URL: {url}
                 ),
             )
 
-            # Build LLM client based on chatbot's model provider
+            # Provider API type map (mirrors llm_service.py)
+            PROVIDER_API_TYPE_MAP = {
+                'openai': 'openai',
+                'claude': 'anthropic',
+                'gemini': 'gemini',
+                'groq': 'groq',
+                'qwen': 'openai',
+                'deepseek': 'openai',
+                'mistral': 'openai',
+                'xai': 'openai',
+                'together': 'openai',
+                'perplexity': 'openai',
+                'openrouter': 'openai',
+            }
+
+            # Resolve the AI model from DB to get API key and base_url
             client = None
-            if model_provider == 'openai':
-                api_key = os.getenv('OPENAI_API_KEY')
-                if api_key:
+            ai_model = None
+            if model_name and model_provider:
+                try:
+                    from ..models.ai_model import AiModel
+                    ai_model = AiModel.query.filter_by(
+                        model_name=model_name, is_active=True
+                    ).first()
+                except Exception:
+                    pass
+
+            if ai_model:
+                api_key = ai_model.get_api_key()
+                base_url = ai_model.base_url
+                api_type = PROVIDER_API_TYPE_MAP.get(ai_model.provider, 'openai')
+
+                if api_key and api_type == 'openai':
                     from langchain_openai import ChatOpenAI
                     client = ChatOpenAI(
-                        model=model_name or 'gpt-4o-mini',
+                        model=ai_model.model_name,
                         temperature=0.3,
                         max_tokens=8000,
-                        api_key=api_key
+                        api_key=api_key,
+                        base_url=base_url,
+                        timeout=60,
                     )
-            elif model_provider == 'gemini':
-                api_key = os.getenv('GEMINI_API_KEY')
-                if api_key:
+                elif api_key and api_type == 'gemini':
                     from langchain_google_genai import ChatGoogleGenerativeAI
                     client = ChatGoogleGenerativeAI(
-                        model=model_name or 'gemini-2.0-flash',
+                        model=ai_model.model_name,
                         temperature=0.3,
                         max_output_tokens=8000,
-                        google_api_key=api_key
+                        google_api_key=api_key,
                     )
+                elif api_key and api_type == 'groq':
+                    from groq import Groq
+                    groq_client = Groq(api_key=api_key)
+                    response = groq_client.chat.completions.create(
+                        model=ai_model.model_name,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=8000,
+                        stream=False,
+                    )
+                    result_text = response.choices[0].message.content
+                    if result_text and len(result_text) > 100:
+                        current_app.logger.info(
+                            f"✅ Structured chunk {chunk_num}/{total_chunks} "
+                            f"with Groq ({ai_model.model_name}): "
+                            f"{len(result_text)} chars"
+                        )
+                        return result_text
+                    return None
 
             # Fallback: try Gemini if no client built
             if not client:
@@ -2723,9 +2770,9 @@ URL: {url}
                     fallback_models = [m.model_name for m in get_active_models(provider='gemini')]
                     if not fallback_models:
                         fallback_models = ['gemini-2.0-flash']
-                    model_name = fallback_models[0]
+                    model_name_fb = fallback_models[0]
                     client = ChatGoogleGenerativeAI(
-                        model=model_name,
+                        model=model_name_fb,
                         temperature=0.3,
                         max_output_tokens=8000,
                         google_api_key=api_key
@@ -2736,6 +2783,10 @@ URL: {url}
 
             response = client.invoke([HumanMessage(content=prompt)])
             if hasattr(response, 'content') and response.content and len(response.content) > 100:
+                current_app.logger.info(
+                    f"✅ Structured chunk {chunk_num}/{total_chunks}: "
+                    f"{len(response.content)} chars"
+                )
                 return response.content
 
             return None
