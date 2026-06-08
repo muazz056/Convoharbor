@@ -131,7 +131,7 @@ class WebExtractionService:
         import random
         self.session.headers['User-Agent'] = random.choice(self.USER_AGENTS)
 
-    def crawl_full_website(self, start_url: str, description: str = "", tenant_id: str = None, user_id: str = None, progress_callback=None) -> Dict[str, Any]:
+    def crawl_full_website(self, start_url: str, description: str = "", tenant_id: str = None, user_id: str = None, progress_callback=None, model_name: str = None, model_provider: str = None) -> Dict[str, Any]:
         """
         Crawl an entire website starting from the given URL.
         Discovers and extracts content from all accessible pages.
@@ -144,6 +144,8 @@ class WebExtractionService:
         self.url_queue.clear()
         self.extracted_content.clear()
         self.progress_callback = progress_callback  # Store callback for progress updates
+        self._structure_model_name = model_name
+        self._structure_model_provider = model_provider
 
         # Parse the starting URL to get domain info
         parsed_start = urlparse(start_url)
@@ -184,7 +186,11 @@ class WebExtractionService:
             combined_content = None
             if total_extracted > 0:
                 try:
-                    combined_content = self._combine_extracted_content(start_url, domain_name)
+                    combined_content = self._combine_extracted_content(
+                        start_url, domain_name,
+                        model_name=self._structure_model_name,
+                        model_provider=self._structure_model_provider
+                    )
                     current_app.logger.info(f"✅ Successfully combined {total_extracted} pieces of extracted content")
                 except Exception as combine_error:
                     current_app.logger.error(f"❌ Failed to combine content: {combine_error}")
@@ -2549,8 +2555,8 @@ URL: {url}
             print(f"❌ OpenAI extraction failed (threaded): {e}")
             return {'success': False, 'error': str(e)}
 
-    def _combine_extracted_content(self, start_url: str, domain_name: str) -> str:
-        """Combine all extracted content and intelligently structure with OpenAI."""
+    def _combine_extracted_content(self, start_url: str, domain_name: str, model_name: str = None, model_provider: str = None) -> str:
+        """Combine all extracted content and intelligently structure with the chatbot's AI model."""
 
         if not self.extracted_content:
             return f"# {domain_name}\n\nNo content could be extracted from this website."
@@ -2577,7 +2583,10 @@ URL: {url}
 
         # Use OpenAI to intelligently structure and chunk the content
         try:
-            structured_content = self._intelligent_structure_with_openai(raw_content, domain_name, start_url)
+            structured_content = self._intelligent_structure_with_openai(
+                raw_content, domain_name, start_url,
+                model_name=model_name, model_provider=model_provider
+            )
             if structured_content:
                 current_app.logger.info(f"✅ Successfully structured content with OpenAI: {len(structured_content)} chars")
                 return structured_content
@@ -2588,8 +2597,8 @@ URL: {url}
             current_app.logger.error(f"❌ OpenAI structuring failed: {e}, using raw content")
             return raw_content
 
-    def _intelligent_structure_with_openai(self, raw_content: str, domain_name: str, start_url: str) -> Optional[str]:
-        """Use OpenAI to intelligently structure and organize website content with tiktoken-based chunking."""
+    def _intelligent_structure_with_openai(self, raw_content: str, domain_name: str, start_url: str, model_name: str = None, model_provider: str = None) -> Optional[str]:
+        """Intelligently structure website content using the chatbot's configured AI model."""
         try:
             import tiktoken
 
@@ -2603,7 +2612,10 @@ URL: {url}
 
             # If content is small enough, process in one go
             if total_tokens < 50000:
-                return self._structure_single_chunk(raw_content, domain_name, start_url)
+                return self._structure_single_chunk(
+                    raw_content, domain_name, start_url,
+                    model_name=model_name, model_provider=model_provider
+                )
 
             # Otherwise, split into chunks and process
             current_app.logger.info(f"📦 Content too large, splitting into chunks...")
@@ -2613,7 +2625,11 @@ URL: {url}
             structured_chunks = []
             for i, chunk in enumerate(chunks, 1):
                 current_app.logger.info(f"🤖 Processing chunk {i}/{len(chunks)}...")
-                structured = self._structure_single_chunk(chunk, domain_name, start_url, chunk_num=i, total_chunks=len(chunks))
+                structured = self._structure_single_chunk(
+                    chunk, domain_name, start_url,
+                    chunk_num=i, total_chunks=len(chunks),
+                    model_name=model_name, model_provider=model_provider
+                )
                 if structured:
                     structured_chunks.append(structured)
 
@@ -2655,22 +2671,11 @@ URL: {url}
 
         return chunks
 
-    def _structure_single_chunk(self, content: str, domain_name: str, start_url: str, chunk_num: int = 1, total_chunks: int = 1) -> Optional[str]:
-        """Use Gemini to structure a single content chunk. Returns None on failure."""
+    def _structure_single_chunk(self, content: str, domain_name: str, start_url: str, chunk_num: int = 1, total_chunks: int = 1, model_name: str = None, model_provider: str = None) -> Optional[str]:
+        """Structure a single content chunk using the chatbot's configured AI model. Returns None on failure."""
         try:
             import os
-            from langchain_google_genai import ChatGoogleGenerativeAI
             from langchain_core.messages import HumanMessage
-
-            gemini_api_key = os.getenv('GEMINI_API_KEY')
-            if not gemini_api_key:
-                current_app.logger.warning("⚠️ No Gemini API key for structuring")
-                return None
-
-            from .model_resolver import get_active_models
-            models_to_try = [m.model_name for m in get_active_models(provider='gemini')]
-            if not models_to_try:
-                models_to_try = ['gemini-2.0-flash']
 
             prompt = _prompt_svc().render(
                 'web_structuring',
@@ -2685,20 +2690,52 @@ URL: {url}
                 ),
             )
 
-            for model_name in models_to_try:
-                try:
+            # Build LLM client based on chatbot's model provider
+            client = None
+            if model_provider == 'openai':
+                api_key = os.getenv('OPENAI_API_KEY')
+                if api_key:
+                    from langchain_openai import ChatOpenAI
+                    client = ChatOpenAI(
+                        model=model_name or 'gpt-4o-mini',
+                        temperature=0.3,
+                        max_tokens=8000,
+                        api_key=api_key
+                    )
+            elif model_provider == 'gemini':
+                api_key = os.getenv('GEMINI_API_KEY')
+                if api_key:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    client = ChatGoogleGenerativeAI(
+                        model=model_name or 'gemini-2.0-flash',
+                        temperature=0.3,
+                        max_output_tokens=8000,
+                        google_api_key=api_key
+                    )
+
+            # Fallback: try Gemini if no client built
+            if not client:
+                api_key = os.getenv('GEMINI_API_KEY')
+                if api_key:
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    from .model_resolver import get_active_models
+                    fallback_models = [m.model_name for m in get_active_models(provider='gemini')]
+                    if not fallback_models:
+                        fallback_models = ['gemini-2.0-flash']
+                    model_name = fallback_models[0]
                     client = ChatGoogleGenerativeAI(
                         model=model_name,
                         temperature=0.3,
                         max_output_tokens=8000,
-                        google_api_key=gemini_api_key
+                        google_api_key=api_key
                     )
-                    response = client.invoke([HumanMessage(content=prompt)])
-                    if hasattr(response, 'content') and response.content and len(response.content) > 100:
-                        return response.content
-                except Exception as model_exc:
-                    current_app.logger.warning(f"⚠️ Gemini structuring failed on {model_name}: {model_exc}")
-                    continue
+                else:
+                    current_app.logger.warning("⚠️ No API key available for structuring")
+                    return None
+
+            response = client.invoke([HumanMessage(content=prompt)])
+            if hasattr(response, 'content') and response.content and len(response.content) > 100:
+                return response.content
 
             return None
 

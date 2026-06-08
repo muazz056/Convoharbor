@@ -705,6 +705,20 @@ def trigger_web_crawl():
                 'message': f'No chatbot found with ID {chatbot_id} in your organization'
             }), 400
 
+    # Resolve chatbot's AI model for structuring
+    structure_model_name = None
+    structure_model_provider = None
+    if chatbot_id:
+        from ..services.model_resolver import resolve_model
+        try:
+            structure_model_name, structure_model_provider = resolve_model(
+                chatbot.config or {}
+            )
+        except Exception as e:
+            current_app.logger.warning(
+                f"⚠️ Could not resolve chatbot model for structuring: {e}"
+            )
+
     # Check if AI connector is available
     if not current_app.ai_connector:
         return jsonify({
@@ -773,7 +787,9 @@ def trigger_web_crawl():
                     description=data.get('description', ''),
                     tenant_id=tenant_id,
                     user_id=g.user_id,
-                    progress_callback=progress_callback
+                    progress_callback=progress_callback,
+                    model_name=structure_model_name,
+                    model_provider=structure_model_provider
                 )
             else:
                 current_app.logger.info(f"📄 Starting SINGLE PAGE extraction for: {url}")
