@@ -130,9 +130,17 @@ def create_app(config_name='default'):
 
     # Initialize CORS with dynamic origin from config
     # The origin must be in a list, even if it's just one.
+    frontend_url = app.config.get('FRONTEND_URL', '').rstrip('/')
+    cors_origins = [frontend_url]
+    # Also allow localhost for development
+    if 'localhost' in (frontend_url or ''):
+        cors_origins.append('http://localhost:3000')
+        cors_origins.append('https://localhost:3000')
     CORS(app,
-         resources={r"/api/*": {"origins": [app.config.get('FRONTEND_URL')]}},
-         supports_credentials=True)
+         resources={r"/api/*": {"origins": cors_origins}},
+         supports_credentials=True,
+         allow_headers=["Content-Type", "Authorization", "X-Tenant-ID", "X-Requested-With"],
+         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"])
 
     # ============================================================
     # Initialize Redis (optional - controlled by REDIS_ENABLED)

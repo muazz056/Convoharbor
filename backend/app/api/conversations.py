@@ -966,10 +966,21 @@ def send_message_json(conversation_id):
                 )
 
             # Generate AI response
+            # Load conversation history from DB so the LLM has full context
+            # for follow-up questions. Take the last 20 messages to stay
+            # within token limits while giving enough context.
+            history_messages = Message.query.filter_by(
+                conversation_id=conversation_id
+            ).order_by(Message.created_at.desc()).limit(20).all()
+            history_messages.reverse()  # chronological order
+
             messages = [
                 {"role": "system", "content": full_system_message},
-                {"role": "user", "content": content}
             ]
+            for hmsg in history_messages:
+                role = 'assistant' if hmsg.message_type == 'assistant' else 'user'
+                messages.append({"role": role, "content": hmsg.content or ''})
+            messages.append({"role": "user", "content": content})
 
             # === LLM CALL LOGGING ===
             # Log exactly what we are about to send to the model so we can
