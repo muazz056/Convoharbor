@@ -729,6 +729,7 @@ def trigger_web_crawl():
     try:
         crawl_job_id = str(uuid.uuid4())
         tenant_id = g.tenant_id
+        user_id = g.user_id
 
         # Create data source record
         data_source = DataSource(
@@ -751,130 +752,157 @@ def trigger_web_crawl():
         db.session.add(data_source)
         db.session.commit()
 
-        # Start web content extraction using Gemini AI
-        try:
-            current_app.logger.info(f"🕷️ Starting web content extraction for: {url}")
+        data_source_id = data_source.id
 
-            # Import the web extraction service
-            from ..services.web_extraction_service import WebExtractionService
+        # Run crawl in background thread so the response returns immediately
+        from threading import Thread
+        from flask import copy_current_request_context
 
-            # Create extraction service instance
-            web_extractor = WebExtractionService()
+        _app = current_app._get_current_object()
+        _db = db
+        _url = url
+        _full_crawl = data.get('full_crawl', True)
+        _description = data.get('description', '')
+        _chatbot_id = chatbot_id
+        _structure_model_name = structure_model_name
+        _structure_model_provider = structure_model_provider
 
-            # Check if user wants full site crawl (default: true for comprehensive extraction)
-            full_crawl = data.get('full_crawl', True)
+        def _run_crawl():
+            with _app.app_context():
+                try:
+                    current_app.logger.info(
+                        f"🕷️ Starting web content extraction for: {_url}"
+                    )
 
-            if full_crawl:
-                current_app.logger.info(f"🕷️ Starting FULL WEBSITE CRAWL for: {url}")
+                    from ..services.web_extraction_service import (
+                        WebExtractionService,
+                    )
+                    web_extractor = WebExtractionService()
 
-                # Create progress callback for real-time updates
-                def progress_callback(progress_data):
-                    try:
-                        socketio = getattr(current_app, 'socketio', None)
-                        if socketio:
-                            socketio.emit('crawl_progress', {
-                                'data_source_id': data_source.id,
-                                'chatbot_id': chatbot_id,
-                                **progress_data
-                            }, room=f"user_{g.user_id}", namespace='/')
-                            current_app.logger.debug(f"📊 Progress: {progress_data['progress_percent']}%")
-                    except Exception as e:
-                        current_app.logger.warning(f"Progress update failed: {e}")
+                    def progress_callback(progress_data):
+                        try:
+                            socketio = getattr(
+                                current_app, 'socketio', None
+                            )
+                            if socketio:
+                                socketio.emit('crawl_progress', {
+                                    'data_source_id': data_source_id,
+                                    'chatbot_id': _chatbot_id,
+                                    **progress_data
+                                }, room=f"user_{user_id}", namespace='/')
+                        except Exception as e:
+                            current_app.logger.warning(
+                                f"Progress update failed: {e}"
+                            )
 
-                # Extract content from entire website using full crawling
-                extraction_result = web_extractor.crawl_full_website(
-                    url,
-                    description=data.get('description', ''),
-                    tenant_id=tenant_id,
-                    user_id=g.user_id,
-                    progress_callback=progress_callback,
-                    model_name=structure_model_name,
-                    model_provider=structure_model_provider
-                )
-            else:
-                current_app.logger.info(f"📄 Starting SINGLE PAGE extraction for: {url}")
-                # Extract content from single page only
-                extraction_result = web_extractor.extract_content_from_url(
-                    url=url,
-                    description=data.get('description', f'Content extraction for chatbot training'),
-                    tenant_id=g.tenant_id,
-                    user_id=g.user_id
-                )
+                    if _full_crawl:
+                        extraction_result = web_extractor.crawl_full_website(
+                            _url,
+                            description=_description,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            progress_callback=progress_callback,
+                            model_name=_structure_model_name,
+                            model_provider=_structure_model_provider
+                        )
+                    else:
+                        extraction_result = (
+                            web_extractor.extract_content_from_url(
+                                url=_url,
+                                description=_description,
+                                tenant_id=tenant_id,
+                                user_id=user_id
+                            )
+                        )
 
-            if not extraction_result['success']:
-                raise Exception(f"Content extraction failed: {extraction_result['error']}")
+                    if not extraction_result['success']:
+                        raise Exception(
+                            f"Content extraction failed: "
+                            f"{extraction_result['error']}"
+                        )
 
-            if extraction_result and extraction_result.get('success'):
-                content = extraction_result.get('content')
+                    content = extraction_result.get('content')
+                    if not content:
+                        raise Exception("Content extraction returned empty")
 
-                if content:
                     from langchain_core.documents import Document
 
                     metadata = extraction_result.get('metadata', {})
                     metadata.update({
-                        'source': url,
+                        'source': _url,
                         'source_type': 'crawl',
-                        'chatbot_id': chatbot_id,
-                        'tenant_id': g.tenant_id,
-                        'user_id': g.user_id,
-                        'extraction_method': extraction_result.get('extraction_method', 'unknown'),
-                        'crawl_stats': extraction_result.get('stats', {})
+                        'chatbot_id': _chatbot_id,
+                        'tenant_id': tenant_id,
+                        'user_id': user_id,
+                        'extraction_method': (
+                            extraction_result.get(
+                                'extraction_method', 'unknown'
+                            )
+                        ),
+                        'crawl_stats': (
+                            extraction_result.get('stats', {})
+                        )
                     })
 
-                    document = Document(page_content=content, metadata=metadata)
+                    document = Document(
+                        page_content=content, metadata=metadata
+                    )
+                    _process_web_content_async(
+                        _app, _db, data_source_id, document
+                    )
 
-                    # Process the document through the existing AI pipeline
-                    _process_web_content_async(current_app._get_current_object(), db, data_source.id, document)
+                    current_app.logger.info(
+                        f"🚀 Web extraction and processing started "
+                        f"for {_url}"
+                    )
 
-                    estimated_completion = datetime.utcnow() + timedelta(minutes=2)
-                    current_app.logger.info(f"🚀 Web extraction and processing started for {url}")
+                except Exception as e:
+                    current_app.logger.error(
+                        f"❌ Background crawl failed: {e}"
+                    )
+                    try:
+                        ds = DataSource.query.get(data_source_id)
+                        if ds:
+                            ds.status = 'failed'
+                            ds.meta_data = {
+                                **(ds.meta_data or {}),
+                                'error': str(e),
+                                'failed_at': (
+                                    datetime.utcnow().isoformat()
+                                )
+                            }
+                            _db.session.commit()
+                        socketio = getattr(
+                            current_app, 'socketio', None
+                        )
+                        if socketio:
+                            socketio.emit('crawl_failed', {
+                                'data_source_id': data_source_id,
+                                'chatbot_id': _chatbot_id,
+                                'message': str(e)
+                            }, room=f"user_{user_id}", namespace='/')
+                    except Exception as db_err:
+                        current_app.logger.error(
+                            f"Failed to update failed status: {db_err}"
+                        )
 
-        except Exception as e:
-            # Update data source with error
-            data_source.status = 'failed'
-            error_message = str(e)
+        thread = Thread(target=_run_crawl, daemon=True)
+        thread.start()
 
-            # Provide user-friendly error messages
-            if "timeout" in error_message.lower():
-                user_error = f"The website took too long to respond. This may be due to the website's anti-bot protection or server issues. Try a different page from the same domain."
-            elif "failed to fetch page content" in error_message.lower():
-                user_error = f"Unable to access the website. The site may be blocking automated requests or experiencing issues."
-            elif "content extraction failed" in error_message.lower():
-                user_error = f"Could not extract meaningful content from the page. Try a different URL with more text content."
-            elif "content extraction returned empty content" in error_message.lower():
-                user_error = f"The website content could not be extracted. This may be due to the site's structure or anti-bot protection."
-            elif "api" in error_message.lower() and "key" in error_message.lower():
-                user_error = f"Web extraction failed: API keys not configured. Please set OPENAI_API_KEY or GEMINI_API_KEY environment variables and restart the application."
-            else:
-                user_error = f"Web extraction failed: {error_message}"
-
-            try:
-                data_source.meta_data = {
-                    **data_source.meta_data,
-                    'error': error_message,
-                    'user_error': user_error,
-                    'failed_at': datetime.utcnow().isoformat()
-                }
-                db.session.commit()
-            except Exception as db_error:
-                current_app.logger.error(f"❌ Failed to update data source metadata: {db_error}")
-
-            # Return user-friendly error
-            return jsonify({
-                'error': 'Web extraction failed',
-                'message': user_error,
-                'data_source_id': data_source.id if 'data_source' in locals() else None,
-                'status': 'failed'
-            }), 400
+        estimated_completion = (
+            datetime.utcnow() + timedelta(minutes=2)
+        )
 
         return jsonify({
-            'message': 'Web content extraction started successfully using Gemini AI',
+            'message': 'Web crawl started',
             'crawl_job_id': crawl_job_id,
-            'data_source_id': data_source.id,
+            'data_source_id': data_source_id,
             'url': url,
             'status': 'crawling',
             'estimated_completion': estimated_completion.isoformat(),
-            'progress_url': f'/api/v1/datasources/{data_source.id}/status'
+            'progress_url': (
+                f'/api/v1/datasources/{data_source_id}/status'
+            )
         }), 202
 
     except Exception as e:
