@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import axios from 'axios';
 
 const AuthContext = createContext();
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -108,7 +109,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       try {
-        const response = await fetch('http://127.0.0.1:5001/api/v1/auth/validate-token', {
+        const response = await fetch(`${API_URL}/auth/validate-token`, {
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -171,7 +172,7 @@ export const AuthProvider = ({ children }) => {
       }
       
       // Regular login with email and password
-      const response = await fetch('http://127.0.0.1:5001/api/v1/auth/login', {
+      const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -209,7 +210,7 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       // Call backend logout endpoint
-      const response = await fetch('http://127.0.0.1:5001/api/v1/auth/logout', {
+      const response = await fetch(`${API_URL}/auth/logout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -258,7 +259,7 @@ export const AuthProvider = ({ children }) => {
   const signup = async (userData) => {
     try {
       // API endpoint for Flask backend
-      const response = await fetch('http://127.0.0.1:5001/api/v1/auth/signup', {
+      const response = await fetch(`${API_URL}/auth/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -326,7 +327,7 @@ export const AuthProvider = ({ children }) => {
 
   const resendConfirmation = async (email) => {
     try {
-      const response = await fetch('http://127.0.0.1:5001/api/v1/auth/resend-confirmation', {
+      const response = await fetch(`${API_URL}/auth/resend-confirmation`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
