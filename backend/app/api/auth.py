@@ -59,10 +59,12 @@ SCOPES = [
 })
 def google_authorize():
     """Redirect user to Google for authentication."""
+    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').rstrip('/')
+    redirect_uri = f"{backend_url}/api/v1/auth/oauth/google/callback"
     google = OAuth2Session(
         current_app.config['GOOGLE_CLIENT_ID'],
         scope=SCOPES,
-        redirect_uri=url_for('api.google_callback', _external=True)
+        redirect_uri=redirect_uri
     )
     authorization_url, state = google.authorization_url(
         AUTHORIZATION_BASE_URL,
@@ -110,10 +112,12 @@ def google_callback():
         if state != session.get('oauth_state'):
             return jsonify(error="State mismatch, possible CSRF attack."), 400
 
+    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').rstrip('/')
+    redirect_uri = f"{backend_url}/api/v1/auth/oauth/google/callback"
     google = OAuth2Session(
         current_app.config['GOOGLE_CLIENT_ID'],
         state=state,
-        redirect_uri=url_for('api.google_callback', _external=True)
+        redirect_uri=redirect_uri
     )
 
     # Replace http with https for oauthlib validation (local dev workaround)
