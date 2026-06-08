@@ -23,4 +23,6 @@ if __name__ == '__main__':
     # Use WebSocket server instead of regular Flask server
     from app.services.websocket_service import websocket_service
     use_reloader = os.getenv('FLASK_RELOAD', 'true').lower() in ['true', '1', 't']
-    websocket_service.socketio.run(app, host='127.0.0.1', port=5001, debug=True, use_reloader=use_reloader)
+    host = os.getenv('HOST', '127.0.0.1')
+    port = int(os.getenv('PORT', 5001))
+    websocket_service.socketio.run(app, host=host, port=port, debug=True, use_reloader=use_reloader)

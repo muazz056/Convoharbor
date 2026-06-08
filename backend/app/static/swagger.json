@@ -1,23 +1,29 @@
 {
     "openapi": "3.0.0",
     "info": {
-        "title": "ConvoPilot Multi-Tenant API",
+        "title": "Convoharbor Multi-Tenant API",
         "description": "This API provides a secure, multi-tenant platform for managing AI chatbots and conversations.",
         "version": "1.0.0",
         "contact": {
-            "name": "ConvoPilot Support",
-            "url": "https://convopilot.com/support",
-            "email": "support@convopilot.com"
+            "name": "Convoharbor Support",
+            "url": "https://convoharbor.com/support",
+            "email": "support@convoharbor.com"
         },
         "license": {
             "name": "Proprietary",
-            "url": "https://convopilot.com/license"
+            "url": "https://convoharbor.com/license"
         }
     },
     "servers": [
         {
-            "url": "http://127.0.0.1:5001/api/v1",
-            "description": "Development server"
+            "url": "{server_url}/api/v1",
+            "description": "API Server",
+            "variables": {
+                "server_url": {
+                    "default": "http://localhost:5001",
+                    "description": "Backend server URL"
+                }
+            }
         }
     ],
     "components": {
