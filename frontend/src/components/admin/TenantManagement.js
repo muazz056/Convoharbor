@@ -123,7 +123,7 @@ const TenantManagement = () => {
                                         className="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                                     >
                                         <option value="managed">Managed</option>
-                                        <option value={process.env.REACT_APP_APP_NAME?.toLowerCase() || 'convopilot'}>{process.env.REACT_APP_APP_NAME || 'ConvoPilot'}</option>
+                                        <option value={process.env.REACT_APP_APP_NAME?.toLowerCase() || 'convoharbor'}>{process.env.REACT_APP_APP_NAME || 'Convoharbor'}</option>
                                     </select>
                                 </div>
                                 
@@ -190,7 +190,7 @@ const TenantManagement = () => {
                                 <td className="px-6 py-4 text-gray-500">{tenant.domain}</td>
                                 <td className="px-6 py-4">
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                        tenant.type === 'convopilot'
+                                        tenant.type === 'convoharbor'
                                             ? 'bg-blue-100 text-blue-800'
                                             : 'bg-purple-100 text-purple-800'
                                     }`}>

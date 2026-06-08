@@ -37,7 +37,7 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         }
     };
     // Persist rating prompt across re-mounts (when stream closes and widget rerenders)
-    const getRatingStorageKey = (convId) => convId ? `convopilot_rating_prompt_${convId}` : null;
+    const getRatingStorageKey = (convId) => convId ? `convoharbor_rating_prompt_${convId}` : null;
 
     // NEW: Website context capture function
     const getWebsiteContext = () => {
@@ -54,7 +54,7 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
             }
             
             // Check sessionStorage for context
-            const storedContext = sessionStorage.getItem('convopilot_website_context');
+            const storedContext = sessionStorage.getItem('convoharbor_website_context');
             if (storedContext) {
                 console.log('🌐 Found website context from sessionStorage');
                 return JSON.parse(storedContext);

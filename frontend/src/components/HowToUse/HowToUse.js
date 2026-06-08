@@ -190,7 +190,7 @@ const HowToUse = () => {
     <>
           <div className="page" id="how-to-use">
             <div className="page-header">
-              <h1 className="page-title">📖 How to Use {process.env.REACT_APP_APP_NAME || 'ConvoPilot'}</h1>
+              <h1 className="page-title">📖 How to Use {process.env.REACT_APP_APP_NAME || 'Convoharbor'}</h1>
               <p className="page-subtitle">
                 Complete guide from creating your chatbot to embedding it on your website
               </p>

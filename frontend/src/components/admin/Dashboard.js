@@ -89,7 +89,7 @@ const AdminDashboard = () => {
                                 </td>
                                 <td className="px-6 py-4">
                                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                        tenant.type === 'convopilot'
+                                        tenant.type === 'convoharbor'
                                             ? 'bg-blue-100 text-blue-800'
                                             : 'bg-purple-100 text-purple-800'
                                     }`}>
