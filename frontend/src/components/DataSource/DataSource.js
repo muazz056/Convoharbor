@@ -27,6 +27,7 @@ import { useAuth } from '../../contexts/AuthContext';
     const [crawlProgress, setCrawlProgress] = useState({}); // Track progress by data_source_id
     const [embeddingProgress, setEmbeddingProgress] = useState({}); // Rate-limit-aware progress by data_source_id
     const [countdowns, setCountdowns] = useState({}); // Countdown timers (seconds remaining) by data_source_id
+    const [crawlLogs, setCrawlLogs] = useState({}); // Real-time logs by data_source_id
 
     const fileInputRef = useRef(null);
 
@@ -110,6 +111,11 @@ import { useAuth } from '../../contexts/AuthContext';
           delete newProgress[data.data_source_id];
           return newProgress;
         });
+        setCrawlLogs(prev => {
+          const newLogs = { ...prev };
+          delete newLogs[data.data_source_id];
+          return newLogs;
+        });
         loadDataSources();
         // Auto-redirect to knowledge base after short delay
         setTimeout(() => navigate('/knowledge-base'), 1500);
@@ -123,6 +129,11 @@ import { useAuth } from '../../contexts/AuthContext';
           const newProgress = { ...prev };
           delete newProgress[data.data_source_id];
           return newProgress;
+        });
+        setCrawlLogs(prev => {
+          const newLogs = { ...prev };
+          delete newLogs[data.data_source_id];
+          return newLogs;
         });
         loadDataSources();
       };
@@ -172,16 +183,35 @@ import { useAuth } from '../../contexts/AuthContext';
         }
       };
 
+      // Listen for crawl log events (real-time step-by-step logs)
+      const handleCrawlLog = (data) => {
+        const sid = data.data_source_id;
+        if (sid == null) return;
+        setCrawlLogs(prev => ({
+          ...prev,
+          [sid]: [
+            ...(prev[sid] || []),
+            {
+              message: data.message,
+              level: data.level,
+              timestamp: data.timestamp
+            }
+          ]
+        }));
+      };
+
       socket.on('crawl_progress', handleCrawlProgress);
       socket.on('crawl_completed', handleCrawlCompleted);
       socket.on('crawl_failed', handleCrawlFailed);
       socket.on('datasource_progress', handleDatasourceProgress);
+      socket.on('crawl_log', handleCrawlLog);
 
       return () => {
         socket.off('crawl_progress', handleCrawlProgress);
         socket.off('crawl_completed', handleCrawlCompleted);
         socket.off('crawl_failed', handleCrawlFailed);
         socket.off('datasource_progress', handleDatasourceProgress);
+        socket.off('crawl_log', handleCrawlLog);
       };
     }, []);
 
@@ -698,6 +728,19 @@ import { useAuth } from '../../contexts/AuthContext';
                                   <span className="crawl-failed-count"> • {crawlProgress[source.id].pages_failed} failed</span>
                                 )}
                               </div>
+                            </div>
+                          )}
+                          {/* Real-time crawl log panel */}
+                          {crawlLogs[source.id] && crawlLogs[source.id].length > 0 && source.status === 'crawling' && (
+                            <div className="crawl-log-panel">
+                              {crawlLogs[source.id].slice(-8).map((log, idx) => (
+                                <div key={idx} className={`crawl-log-entry crawl-log-${log.level}`}>
+                                  <span className="crawl-log-time">
+                                    {new Date(log.timestamp).toLocaleTimeString()}
+                                  </span>
+                                  <span className="crawl-log-msg">{log.message}</span>
+                                </div>
+                              ))}
                             </div>
                           )}
                     </div>

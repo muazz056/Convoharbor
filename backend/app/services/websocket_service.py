@@ -67,6 +67,10 @@ class WebSocketService:
                         'payload': payload
                     }
                 current_app.logger.info(f"WS connected successfully on {ns}, user_id: {user_id}")
+                if user_id:
+                    user_room = f"user_{user_id}"
+                    join_room(user_room)
+                    current_app.logger.info(f"WS joined room: {user_room}")
                 emit('connection_established', {'status': 'connected', 'namespace': ns})
                 return True
             except Exception as e:

@@ -714,10 +714,18 @@ def trigger_web_crawl():
             structure_model_name, structure_model_provider = resolve_model(
                 chatbot.config or {}
             )
+            current_app.logger.info(
+                f"🤖 Resolved chatbot model for structuring: "
+                f"{structure_model_name} ({structure_model_provider})"
+            )
         except Exception as e:
             current_app.logger.warning(
                 f"⚠️ Could not resolve chatbot model for structuring: {e}"
             )
+    else:
+        current_app.logger.warning(
+            "⚠️ No chatbot_id provided, structuring will use fallback"
+        )
 
     # Check if AI connector is available
     if not current_app.ai_connector:
@@ -769,9 +777,28 @@ def trigger_web_crawl():
 
         def _run_crawl():
             with _app.app_context():
+                def _emit_log(message, level='info'):
+                    """Send a crawl log event to the frontend."""
+                    try:
+                        socketio = getattr(
+                            current_app, 'socketio', None
+                        )
+                        if socketio:
+                            socketio.emit('crawl_log', {
+                                'data_source_id': data_source_id,
+                                'chatbot_id': _chatbot_id,
+                                'message': message,
+                                'level': level,
+                                'timestamp': (
+                                    datetime.utcnow().isoformat()
+                                )
+                            }, room=f"user_{user_id}", namespace='/')
+                    except Exception:
+                        pass
+
                 try:
-                    current_app.logger.info(
-                        f"🕷️ Starting web content extraction for: {_url}"
+                    _emit_log(
+                        f"Starting crawl for {_url}", 'start'
                     )
 
                     from ..services.web_extraction_service import (
@@ -781,6 +808,23 @@ def trigger_web_crawl():
 
                     def progress_callback(progress_data):
                         try:
+                            pct = progress_data.get(
+                                'progress_percent', 0
+                            )
+                            crawled = progress_data.get(
+                                'pages_crawled', 0
+                            )
+                            total = progress_data.get(
+                                'total_pages', 0
+                            )
+                            failed = progress_data.get(
+                                'pages_failed', 0
+                            )
+                            _emit_log(
+                                f"Crawled {crawled}/{total} pages "
+                                f"({pct}%) - {failed} failed",
+                                'progress'
+                            )
                             socketio = getattr(
                                 current_app, 'socketio', None
                             )
@@ -789,11 +833,16 @@ def trigger_web_crawl():
                                     'data_source_id': data_source_id,
                                     'chatbot_id': _chatbot_id,
                                     **progress_data
-                                }, room=f"user_{user_id}", namespace='/')
+                                }, room=f"user_{user_id}",
+                                    namespace='/')
                         except Exception as e:
                             current_app.logger.warning(
                                 f"Progress update failed: {e}"
                             )
+
+                    _emit_log(
+                        "Discovering website URLs...", 'step'
+                    )
 
                     if _full_crawl:
                         extraction_result = web_extractor.crawl_full_website(
@@ -806,6 +855,9 @@ def trigger_web_crawl():
                             model_provider=_structure_model_provider
                         )
                     else:
+                        _emit_log(
+                            "Extracting single page...", 'step'
+                        )
                         extraction_result = (
                             web_extractor.extract_content_from_url(
                                 url=_url,
@@ -823,7 +875,17 @@ def trigger_web_crawl():
 
                     content = extraction_result.get('content')
                     if not content:
-                        raise Exception("Content extraction returned empty")
+                        raise Exception(
+                            "Content extraction returned empty"
+                        )
+
+                    stats = extraction_result.get('stats', {})
+                    pages = stats.get('pages_crawled', 0)
+                    _emit_log(
+                        f"Crawl complete: {pages} pages extracted. "
+                        f"Processing content...",
+                        'step'
+                    )
 
                     from langchain_core.documents import Document
 
@@ -839,16 +901,23 @@ def trigger_web_crawl():
                                 'extraction_method', 'unknown'
                             )
                         ),
-                        'crawl_stats': (
-                            extraction_result.get('stats', {})
-                        )
+                        'crawl_stats': stats
                     })
 
                     document = Document(
                         page_content=content, metadata=metadata
                     )
+                    _emit_log(
+                        "Cleaning text and creating chunks...",
+                        'step'
+                    )
                     _process_web_content_async(
                         _app, _db, data_source_id, document
+                    )
+
+                    _emit_log(
+                        "Embeddings generation started...",
+                        'step'
                     )
 
                     current_app.logger.info(
@@ -859,6 +928,9 @@ def trigger_web_crawl():
                 except Exception as e:
                     current_app.logger.error(
                         f"❌ Background crawl failed: {e}"
+                    )
+                    _emit_log(
+                        f"Crawl failed: {e}", 'error'
                     )
                     try:
                         ds = DataSource.query.get(data_source_id)
@@ -880,7 +952,8 @@ def trigger_web_crawl():
                                 'data_source_id': data_source_id,
                                 'chatbot_id': _chatbot_id,
                                 'message': str(e)
-                            }, room=f"user_{user_id}", namespace='/')
+                            }, room=f"user_{user_id}",
+                                namespace='/')
                     except Exception as db_err:
                         current_app.logger.error(
                             f"Failed to update failed status: {db_err}"

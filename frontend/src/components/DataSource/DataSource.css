@@ -977,3 +977,54 @@
   color: var(--danger);
   font-weight: 600;
 }
+
+/* Real-time crawl log panel */
+.crawl-log-panel {
+  margin-top: 10px;
+  background: #f8f9fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.crawl-log-entry {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  align-items: flex-start;
+}
+
+.crawl-log-time {
+  color: #9ca3af;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.crawl-log-msg {
+  color: #374151;
+  word-break: break-word;
+}
+
+.crawl-log-start .crawl-log-msg {
+  color: #2563eb;
+  font-weight: 600;
+}
+
+.crawl-log-step .crawl-log-msg {
+  color: #7c3aed;
+  font-weight: 500;
+}
+
+.crawl-log-progress .crawl-log-msg {
+  color: #059669;
+}
+
+.crawl-log-error .crawl-log-msg {
+  color: #dc2626;
+  font-weight: 600;
+}

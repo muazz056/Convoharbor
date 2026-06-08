@@ -2007,7 +2007,8 @@ URL: {url}
                                                 'pages_crawled': len(self.crawled_urls),
                                                 'total_pages': self.total_discovered_pages,
                                                 'progress_percent': progress_percent,
-                                                'pages_failed': len(self.failed_urls)
+                                                'pages_failed': len(self.failed_urls),
+                                                'current_page': url
                                             })
                                         except Exception as cb_error:
                                             current_app.logger.warning(f"Progress callback error: {cb_error}")
@@ -2564,7 +2565,7 @@ URL: {url}
         # Sort content by URL for consistent organization
         sorted_content = sorted(self.extracted_content, key=lambda x: x['url'])
 
-        current_app.logger.info(f"🤖 Starting intelligent content structuring with OpenAI for {len(sorted_content)} pages...")
+        current_app.logger.info(f"🤖 Starting intelligent content structuring for {len(sorted_content)} pages...")
 
         # Build comprehensive content with simple formatting
         combined_parts = []
