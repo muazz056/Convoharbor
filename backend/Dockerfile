@@ -11,9 +11,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
-COPY requirements.txt requirements-test.txt ./
+COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir -r requirements-test.txt
 
 # Copy application code
 COPY . .
@@ -27,4 +26,4 @@ ENV PYTHONPATH=/app
 EXPOSE 5001
 
 # Run the application
-CMD ["python", "run.py"]
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5001", "run:app"]
