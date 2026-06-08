@@ -100,7 +100,7 @@ class WebExtractionService:
         self.session.headers.update({
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'Cache-Control': 'max-age=0',
             'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
             'Sec-Ch-Ua-Mobile': '?0',
@@ -1688,6 +1688,37 @@ URL: {url}
     # Multi-strategy page fetching
     # ===================================================================
 
+    def _is_binary_content(self, text: str) -> bool:
+        """Detect if extracted text is actually compressed/binary garbage."""
+        if not text:
+            return False
+        # Check for high ratio of non-printable characters
+        sample = text[:2000]
+        non_printable = sum(1 for c in sample if ord(c) < 32 and c not in '\n\r\t')
+        return non_printable > len(sample) * 0.15
+
+    def _decompress_response(self, resp) -> str:
+        """Safely decompress a response, handling edge cases where
+        requests/r.content doesn't auto-decode."""
+        import gzip
+        import zlib
+        # If requests already decoded it, r.text will be clean
+        text = resp.text
+        if not self._is_binary_content(text):
+            return text
+        # Try manual decompression from raw bytes
+        raw = resp.content
+        for decoder in (gzip.decompress, zlib.decompress, zlib.decompressobj(-zlib.MAX_WBITS).decompress):
+            try:
+                decoded = decoder(raw)
+                result = decoded.decode('utf-8', errors='replace')
+                if not self._is_binary_content(result):
+                    return result
+            except Exception:
+                continue
+        # Last resort: force decode as utf-8 with replacement
+        return raw.decode('utf-8', errors='replace')
+
     def _fetch_url(self, url: str, timeout: int = 15, allow_cloudscraper: bool = True) -> Optional[Dict[str, Any]]:
         """Fetch a URL with a 3-tier strategy:
             1. `cloudscraper` first (bypasses Cloudflare / anti-bot) — works on most protected sites
@@ -1705,15 +1736,17 @@ URL: {url}
                 )
                 scraper.headers.update(self.session.headers)
                 r = scraper.get(url, timeout=timeout)
-                if r.status_code == 200 and r.text and len(r.text.strip()) > 100:
-                    if not self._looks_blocked(r.text):
-                        return {
-                            'content': r.text,
-                            'status_code': r.status_code,
-                            'headers': dict(r.headers),
-                            'url': r.url,
-                            'method': 'cloudscraper',
-                        }
+                if r.status_code == 200:
+                    text = self._decompress_response(r)
+                    if text and len(text.strip()) > 100:
+                        if not self._looks_blocked(text):
+                            return {
+                                'content': text,
+                                'status_code': r.status_code,
+                                'headers': dict(r.headers),
+                                'url': r.url,
+                                'method': 'cloudscraper',
+                            }
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
 
@@ -1721,15 +1754,17 @@ URL: {url}
         try:
             self._rotate_user_agent()
             r = self.session.get(url, timeout=timeout, allow_redirects=True)
-            if r.status_code == 200 and r.text and len(r.text.strip()) > 100:
-                if not self._looks_blocked(r.text):
-                    return {
-                        'content': r.text,
-                        'status_code': r.status_code,
-                        'headers': dict(r.headers),
-                        'url': r.url,
-                        'method': 'requests',
-                    }
+            if r.status_code == 200:
+                text = self._decompress_response(r)
+                if text and len(text.strip()) > 100:
+                    if not self._looks_blocked(text):
+                        return {
+                            'content': text,
+                            'status_code': r.status_code,
+                            'headers': dict(r.headers),
+                            'url': r.url,
+                            'method': 'requests',
+                        }
         except Exception as exc:  # noqa: BLE001
             last_error = exc
 
@@ -1738,15 +1773,17 @@ URL: {url}
             try:
                 with httpx.Client(timeout=timeout, follow_redirects=True, headers=self.session.headers) as client:
                     r = client.get(url)
-                    if r.status_code == 200 and r.text and len(r.text.strip()) > 100:
-                        if not self._looks_blocked(r.text):
-                            return {
-                                'content': r.text,
-                                'status_code': r.status_code,
-                                'headers': dict(r.headers),
-                                'url': str(r.url),
-                                'method': 'httpx',
-                            }
+                    if r.status_code == 200:
+                        text = self._decompress_response(r)
+                        if text and len(text.strip()) > 100:
+                            if not self._looks_blocked(text):
+                                return {
+                                    'content': text,
+                                    'status_code': r.status_code,
+                                    'headers': dict(r.headers),
+                                    'url': str(r.url),
+                                    'method': 'httpx',
+                                }
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
 
@@ -2619,16 +2656,21 @@ URL: {url}
         return chunks
 
     def _structure_single_chunk(self, content: str, domain_name: str, start_url: str, chunk_num: int = 1, total_chunks: int = 1) -> Optional[str]:
-        """Use OpenAI to structure a single content chunk."""
+        """Use Gemini to structure a single content chunk. Returns None on failure."""
         try:
             import os
-            from openai import OpenAI
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            from langchain_core.messages import HumanMessage
 
-            api_key = os.getenv('OPENAI_API_KEY')
-            if not api_key:
-                raise Exception("OpenAI API key not found")
+            gemini_api_key = os.getenv('GEMINI_API_KEY')
+            if not gemini_api_key:
+                current_app.logger.warning("⚠️ No Gemini API key for structuring")
+                return None
 
-            client = OpenAI(api_key=api_key)
+            from .model_resolver import get_active_models
+            models_to_try = [m.model_name for m in get_active_models(provider='gemini')]
+            if not models_to_try:
+                models_to_try = ['gemini-2.0-flash']
 
             prompt = _prompt_svc().render(
                 'web_structuring',
@@ -2643,16 +2685,21 @@ URL: {url}
                 ),
             )
 
-            model = self._resolve_extraction_model('openai')
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=8000
-            )
+            for model_name in models_to_try:
+                try:
+                    client = ChatGoogleGenerativeAI(
+                        model=model_name,
+                        temperature=0.3,
+                        max_output_tokens=8000,
+                        google_api_key=gemini_api_key
+                    )
+                    response = client.invoke([HumanMessage(content=prompt)])
+                    if hasattr(response, 'content') and response.content and len(response.content) > 100:
+                        return response.content
+                except Exception as model_exc:
+                    current_app.logger.warning(f"⚠️ Gemini structuring failed on {model_name}: {model_exc}")
+                    continue
 
-            if response.choices:
-                return response.choices[0].message.content
             return None
 
         except Exception as e:

@@ -64,8 +64,7 @@ import { useAuth } from '../../contexts/AuthContext';
               });
               // Refresh list and redirect to knowledge base
               await loadDataSources();
-              alert('✅ Processing completed! Redirecting to Knowledge Base...');
-              navigate('/knowledge-base');
+              setTimeout(() => navigate('/knowledge-base'), 1500);
               return;
             } else if (status.status === 'failed') {
               setPollingSources(prev => {
@@ -112,14 +111,14 @@ import { useAuth } from '../../contexts/AuthContext';
           return newProgress;
         });
         loadDataSources();
-        alert('✅ Web crawl completed! Redirecting to Knowledge Base...');
-        navigate('/knowledge-base');
+        // Auto-redirect to knowledge base after short delay
+        setTimeout(() => navigate('/knowledge-base'), 1500);
       };
 
       // Listen for crawl failure
       const handleCrawlFailed = (data) => {
         console.log('❌ Crawl failed:', data);
-        alert(`❌ Web crawl failed!\n\n${data.message}`);
+        setError(data.message || 'Web crawl failed');
         setCrawlProgress(prev => {
           const newProgress = { ...prev };
           delete newProgress[data.data_source_id];
@@ -336,7 +335,10 @@ import { useAuth } from '../../contexts/AuthContext';
         
         setCrawlUrl('');
         setShowUrlInput(false);
-        alert(`🌐 Web crawling started! You'll be redirected to Knowledge Base when done.`);
+        // No alert needed — progress bar handles UX. Add to polling fallback.
+        if (result && result.data_source_id) {
+          setPollingSources(prev => new Set([...prev, result.data_source_id]));
+        }
       } catch (err) {
         setError(err.message);
         console.error('Error starting web crawl:', err);

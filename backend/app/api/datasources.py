@@ -1331,14 +1331,18 @@ def _process_web_content_async(app, db, data_source_id, document):
                 try:
                     socketio = getattr(current_app, 'socketio', None)
                     if socketio and data_source and data_source.chatbot_id:
+                        from ..models import Chatbot, User
+                        chatbot = Chatbot.query.get(data_source.chatbot_id)
+                        owner = User.query.get(chatbot.user_id) if chatbot else None
+                        room = f"user_{owner.id}" if owner else f"tenant_{data_source.tenant_id}"
                         socketio.emit('crawl_completed', {
                             'data_source_id': data_source_id,
                             'chatbot_id': data_source.chatbot_id,
                             'status': 'completed',
                             'message': f'Successfully crawled and processed {data_source.source_name}',
                             'stats': data_source.meta_data.get('crawl_stats', {})
-                        }, room=f"user_{data_source.user_id}", namespace='/')
-                        current_app.logger.info(f"📡 [BG] Sent WebSocket crawl_completed notification to user_{data_source.user_id}")
+                        }, room=room, namespace='/')
+                        current_app.logger.info(f"📡 [BG] Sent WebSocket crawl_completed notification to {room}")
                 except Exception as ws_error:
                     current_app.logger.warning(f"⚠️ [BG] Failed to send WebSocket notification: {ws_error}")
 
