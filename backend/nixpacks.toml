@@ -1,0 +1,8 @@
+[phases]
+setup = {
+  cmds = ["python --version"]
+}
+
+[variables]
+PYTHON_VERSION = "3.12"
+NIXPACKS_PYTHON_VERSION = "3.12"
