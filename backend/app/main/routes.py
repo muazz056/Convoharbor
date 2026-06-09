@@ -904,11 +904,11 @@ def query_rag_endpoint():
         # Handle no results gracefully
         if not retrieved_contexts:
             if detected_lang == 'en':
-                no_results_msg = "I've searched my knowledge base but couldn't find specific information to answer your question. Could you try rephrasing your question or asking about a different topic?"
+                no_results_msg = "I don't have that specific information available right now. Could you try rephrasing your question or asking about something else?"
             else:
                 # For non-English, use the comprehensive prompt to generate a natural response
                 no_results_msg = query_processor_service.ultra_efficient_final_generation(
-                    context="No relevant information found in knowledge base",
+                    context="No relevant information found for this query",
                     query=user_query,
                     target_lang=detected_lang,
                     mode=mode,
@@ -967,11 +967,11 @@ def query_rag_endpoint():
 
             # Professional response for out-of-scope queries in strict mode
             if detected_lang == 'en':
-                out_of_scope_msg = "I checked my knowledge base but couldn't find reliable information about this specific topic. I want to make sure I provide you with accurate information, so could you try asking about something else I might be able to help with?"
+                out_of_scope_msg = "I don't have that specific information available right now. I want to make sure I give you accurate information — could you try asking about something else I might be able to help with?"
             else:
                 # For non-English, generate a natural response
                 out_of_scope_msg = query_processor_service.ultra_efficient_final_generation(
-                    context="Query is outside knowledge base scope - provide helpful guidance",
+                    context="Query is outside scope - provide helpful guidance",
                     query=user_query,
                     target_lang=detected_lang,
                     mode="permissive",  # Use permissive for this guidance message

@@ -873,11 +873,11 @@ def send_message_json(conversation_id):
                     mode = config.get('mode', 'strict')
                     if mode == 'strict':
                         fallback_message = config.get('prompts', {}).get('fallback',
-                                                                         "I'm in strict mode and can only answer questions based on my knowledge base. I don't have information about this topic in my uploaded documents. Please ask me something related to the provided documents, or you can say hello or goodbye."
+                                                                         "I'm sorry, I don't have that information available right now. Could you try rephrasing your question, or say hello to get started?"
                                                                          )
                     else:
                         fallback_message = config.get('prompts', {}).get('fallback',
-                                                                         "I apologize, but I can only answer questions based on the documents and information that have been provided to me. I don't have information about this topic in my knowledge base. Please ask me something related to the uploaded documents or try rephrasing your question."
+                                                                         "I don't have that specific information on hand. Could you try rephrasing your question, or I can connect you with our team for more details."
                                                                          )
 
                     # Create assistant message with fallback
@@ -954,7 +954,7 @@ def send_message_json(conversation_id):
                         chatbot_role=chatbot_role,
                         target_lang=target_lang,
                         context='',
-                        refusal_message="I'm sorry, but I can't find an answer to your question in my knowledge base right now.",
+                        refusal_message="I'm sorry, but I can't find an answer to your question right now.",
                     )
             else:
                 full_system_message = system_message + "\n\n" + prompt_svc.render(

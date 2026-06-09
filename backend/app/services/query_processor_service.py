@@ -280,10 +280,9 @@ def ultra_efficient_final_generation(
         if needs_translation else ""
     )
     refusal_message = (
-        "I'm sorry, but I can't find an answer to your question in my "
-        "knowledge base right now."
+        "I'm sorry, but I can't find an answer to your question right now."
         if mode == 'strict' else
-        "I searched my knowledge base but don't have specific information on that."
+        "I don't have that specific information on hand right now."
     )
     ultra_prompt = _prompt_svc().render(
         'answer_ultra',

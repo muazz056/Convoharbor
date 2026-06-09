@@ -1755,7 +1755,7 @@ def send_test_message(chatbot_id):
                     context='',
                     refusal_message=(
                         "I'm sorry, but I can't find an answer to your "
-                        "question in my knowledge base right now."
+                        "question right now."
                     ),
                 )
                 current_app.logger.info(

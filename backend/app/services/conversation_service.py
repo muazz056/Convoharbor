@@ -60,11 +60,20 @@ class ConversationService:
         ]
 
     def is_greeting(self, message: str) -> bool:
-        """Check if message is a greeting"""
+        """Check if message is ONLY a greeting (not a greeting + actual question).
+
+        A message like 'Hi' or 'Hello!' is a greeting.
+        A message like 'Hi explain about yourself' or 'Hello, what products do you offer?'
+        is NOT a greeting — it contains a greeting word but has real content.
+        """
         message_lower = message.lower().strip()
-        for pattern in self.greeting_patterns:
-            if re.search(pattern, message_lower, re.IGNORECASE):
-                return True
+        words = message_lower.split()
+
+        # Very short messages (1-3 words) that match a greeting pattern are greetings
+        if len(words) <= 3:
+            for pattern in self.greeting_patterns:
+                if re.search(pattern, message_lower, re.IGNORECASE):
+                    return True
         return False
 
     def is_farewell(self, message: str) -> bool:
