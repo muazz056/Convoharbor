@@ -59,8 +59,10 @@ SCOPES = [
 })
 def google_authorize():
     """Redirect user to Google for authentication."""
-    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').rstrip('/')
+    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').strip().rstrip('/')
     redirect_uri = f"{backend_url}/api/v1/auth/oauth/google/callback"
+    import logging
+    logging.getLogger(__name__).warning(f"🔍 OAUTH DEBUG: BACKEND_URL='{backend_url}' | redirect_uri='{redirect_uri}' | GOOGLE_CLIENT_ID='{current_app.config.get('GOOGLE_CLIENT_ID', 'NOT SET')[:20]}...'")
     google = OAuth2Session(
         current_app.config['GOOGLE_CLIENT_ID'],
         scope=SCOPES,
@@ -112,7 +114,7 @@ def google_callback():
         if state != session.get('oauth_state'):
             return jsonify(error="State mismatch, possible CSRF attack."), 400
 
-    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').rstrip('/')
+    backend_url = current_app.config.get('BACKEND_URL', 'http://localhost:5001').strip().rstrip('/')
     redirect_uri = f"{backend_url}/api/v1/auth/oauth/google/callback"
     google = OAuth2Session(
         current_app.config['GOOGLE_CLIENT_ID'],
