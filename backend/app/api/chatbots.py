@@ -1045,29 +1045,20 @@ def update_chatbot(chatbot_id):
         # RESTRICTED FIELDS GATE
         # The four fields below (temperature, max_tokens, mode, top_k)
         # can ONLY be mutated by the Super Admin. Non-super-admin
-        # requests that include any of these keys are rejected with
-        # 403 BEFORE any database write happens. This keeps tenant
-        # users from accidentally (or maliciously) overriding the
-        # centralized values, and lets the Super Admin push the same
-        # values across every chatbot in the system consistently.
+        # requests that include any of these keys have them silently
+        # stripped so the rest of the update (name, theme, personality,
+        # etc.) still goes through. Super Admin can change everything.
         # ============================================================
         if chatbot_defaults.is_restricted_update_requested(data):
             if not chatbot_defaults.is_super_admin(getattr(g, 'role', None)):
                 attempted = chatbot_defaults.extract_restricted_update(data)
-                current_app.logger.warning(
-                    f"🚫 Non-super-admin (role={getattr(g, 'role', None)}) "
-                    f"attempted to change restricted chatbot fields: "
-                    f"{sorted(attempted.keys())} on chatbot {chatbot_id}"
+                current_app.logger.info(
+                    f"🔒 Non-super-admin (role={getattr(g, 'role', None)}) "
+                    f"update — stripping restricted fields: "
+                    f"{sorted(attempted.keys())} from chatbot {chatbot_id}"
                 )
-                return jsonify({
-                    'error': 'Forbidden',
-                    'message': (
-                        'Only the Super Admin can change top_k, mode, '
-                        'temperature, or max_tokens. These values are '
-                        'controlled globally for consistency.'
-                    ),
-                    'restricted_fields': list(chatbot_defaults.RESTRICTED_FIELDS),
-                }), 403
+                for field in chatbot_defaults.RESTRICTED_FIELDS:
+                    data.pop(field, None)
 
         if 'temperature' in data:
             temperature = data['temperature']
