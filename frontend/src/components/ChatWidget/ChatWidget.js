@@ -17,10 +17,16 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
     const [showRating, setShowRating] = useState(false);
     const [ratingMessage, setRatingMessage] = useState('');
     const [selectedRating, setSelectedRating] = useState(0);
+    const [ratingStep, setRatingStep] = useState('none'); // 'none' | 'stars' | 'feedback' | 'thankyou'
+    const [ratingFeedback, setRatingFeedback] = useState('');
+    const [ratingSubmitting, setRatingSubmitting] = useState(false);
+    const ratingSubmittedRef = useRef(false);
     const { socket: contextSocket, isConnected } = useWebSocket();
     const { user } = useAuth();
     const socket = externalSocket || contextSocket;
     const messagesEndRef = useRef(null);
+    const messagesContainerRef = useRef(null);
+    const loadedFromAPI = useRef(false);
 
     // Storage key for test mode (local-only messages)
     const getTestStorageKey = () => `test_widget_messages_${chatbotId}`;
@@ -105,8 +111,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                             setThemeConfig(themeSettings);
                             setChatbotInfo(firstBot);
                             
-                            // Set initial welcome message
-                            if (messages.length === 0) {
+                            // Set initial welcome message only if no messages loaded from API
+                            if (messages.length === 0 && !loadedFromAPI.current) {
                                 setMessages([{
                                     message_type: 'assistant',
                                     content: themeSettings.welcomeMessage,
@@ -138,8 +144,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                     }
                 });
                 
-                // Set initial welcome message
-                if (messages.length === 0) {
+                // Set initial welcome message only if no messages loaded from API
+                if (messages.length === 0 && !loadedFromAPI.current) {
                     setMessages([{
                         message_type: 'assistant',
                         content: defaultTheme.welcomeMessage,
@@ -174,8 +180,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                 console.log('🎨 Theme debug - Final theme settings:', themeSettings);
                 setThemeConfig(themeSettings);
 
-                // Set initial welcome message when theme loads (only if no messages exist)
-                if (messages.length === 0) {
+                // Set initial welcome message when theme loads (only if no messages exist and none loaded from API)
+                if (messages.length === 0 && !loadedFromAPI.current) {
                     if (testMode) {
                         // Load from localStorage in test mode
                         try {
@@ -209,8 +215,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                 };
                 setThemeConfig(fallbackTheme);
 
-                // Set fallback welcome message
-                if (messages.length === 0) {
+                // Set fallback welcome message only if no messages loaded from API
+                if (messages.length === 0 && !loadedFromAPI.current) {
                     if (testMode) {
                         try {
                             const stored = localStorage.getItem(getTestStorageKey());
@@ -265,6 +271,7 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                 const parsed = JSON.parse(stored);
                 if (parsed && parsed.show_rating && parsed.conversation_id === conversationId) {
                     setShowRating(true);
+                    setRatingStep('stars');
                     setRatingMessage(parsed.rating_message || 'How would you rate your experience?');
                 }
             }
@@ -284,15 +291,20 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                 if (!candidateId) return;
 
                 const res = await fetch(`${baseURL}/conversations/${candidateId}`);
-                if (!res.ok) {
-                    // Not found or error → clear
+                if (res.status === 404) {
+                    console.warn('⚠️ Conversation not found (404), clearing stored conversation');
                     localStorage.removeItem(storageKey);
                     setConversationId(null);
+                    return;
+                }
+                if (!res.ok) {
+                    console.warn('⚠️ Conversation validation returned ' + res.status + ', keeping conversation');
                     return;
                 }
                 const data = await res.json();
                 const status = data?.conversation?.status || data?.status;
                 if (status === 'deleted') {
+                    console.warn('⚠️ Conversation was deleted, clearing stored conversation');
                     localStorage.removeItem(storageKey);
                     setConversationId(null);
                 } else {
@@ -303,12 +315,9 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                     }
                 }
             } catch (err) {
-                // Fail-open: clear invalid state to allow fresh conversation
-                try {
-                    const storageKey = getStorageKey();
-                    localStorage.removeItem(storageKey);
-                } catch (_) {}
-                setConversationId(null);
+                console.warn('⚠️ Conversation validation network error, keeping conversation:', err.message);
+                // DON'T clear conversation on network errors — messages were already loaded
+                // Only clear on explicit 404/deleted status
             }
         };
         validateExistingConversation();
@@ -319,6 +328,11 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
     useEffect(() => {
         const loadExistingMessages = async () => {
             if (!conversationId || !chatbotId) return;
+            // Don't load from DB while a message is being sent — the local state
+            // has the latest user message and streaming response that aren't in DB yet
+            if (isTyping) return;
+            // Don't overwrite while a message is still streaming
+            if (messages.some(m => m.isStreaming)) return;
             
             try {
                 console.log('📥 Loading existing messages for conversation:', conversationId);
@@ -343,7 +357,19 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                         timestamp: msg.created_at || msg.timestamp
                     }));
                     
+                    // If the first message is not the welcome message, prepend it
+                    const welcomeText = themeConfig?.welcomeMessage || '';
+                    const firstMsg = formattedMessages[0];
+                    if (welcomeText && firstMsg && firstMsg.content !== welcomeText) {
+                        formattedMessages.unshift({
+                            message_type: 'assistant',
+                            content: welcomeText,
+                            timestamp: formattedMessages[0]?.timestamp || new Date().toISOString()
+                        });
+                    }
+                    
                     // Replace welcome message with actual conversation history
+                    loadedFromAPI.current = true;
                     setMessages(formattedMessages);
                 } else {
                     console.log('📝 No existing messages found, keeping welcome message');
@@ -356,20 +382,42 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         };
         
         loadExistingMessages();
-    }, [conversationId, chatbotId]);
+    }, [conversationId, chatbotId, isTyping]);
 
-    // Auto-scroll to bottom when messages change
+    // Auto-scroll to bottom when messages change — use scrollTop on the
+    // messages container directly instead of scrollIntoView which can
+    // bubble up and scroll the wrong ancestor (causing blank-area bug).
     useEffect(() => {
-        if (messagesEndRef.current) {
-            messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        const container = messagesContainerRef.current;
+        if (container) {
+            container.scrollTop = container.scrollHeight;
         }
     }, [messages]);
 
     const handleRatingSubmit = async (rating, feedback = '') => {
+        if (ratingSubmitting) return;
+        setRatingSubmitting(true);
         try {
             console.log(`🌟 Submitting rating: ${rating}/5 for conversation ${conversationId}`);
             console.log(`📝 Feedback: "${feedback}"`);
-            
+            console.log(`🧪 Test mode: ${testMode}`);
+
+            // In test mode, don't call API — just show thank you
+            if (testMode) {
+                console.log('🧪 Test mode — rating not saved to database');
+                setRatingStep('thankyou');
+                setTimeout(() => {
+                    ratingSubmittedRef.current = true;
+                    setShowRating(false);
+                    setRatingStep('none');
+                    setSelectedRating(0);
+                    setRatingFeedback('');
+                    setRatingSubmitting(false);
+                }, 2500);
+                return;
+            }
+
+            // Embed chat — save to database
             const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5001/api/v1'}/conversations/${conversationId}/satisfaction`, {
                 method: 'POST',
                 headers: {
@@ -386,22 +434,126 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
             if (response.ok) {
                 const result = await response.json();
                 console.log('✅ Satisfaction rating submitted successfully:', result);
-                setShowRating(false);
-                setSelectedRating(0);
-                // Clear persisted rating prompt
-                try {
-                    const key = getRatingStorageKey(conversationId);
-                    if (key) localStorage.removeItem(key);
-                } catch (_) {}
+                setRatingStep('thankyou');
+                setTimeout(() => {
+                    ratingSubmittedRef.current = true;
+                    setShowRating(false);
+                    setRatingStep('none');
+                    setSelectedRating(0);
+                    setRatingFeedback('');
+                    setRatingSubmitting(false);
+                    // Clear persisted rating prompt
+                    try {
+                        const key = getRatingStorageKey(conversationId);
+                        if (key) localStorage.removeItem(key);
+                    } catch (_) {}
+                }, 2500);
             } else {
                 const errorData = await response.json();
                 console.error('❌ Failed to submit rating:', errorData);
+                setRatingSubmitting(false);
                 alert(`Failed to submit rating: ${errorData.error || 'Unknown error'}`);
             }
         } catch (error) {
             console.error('❌ Error submitting rating:', error);
+            setRatingSubmitting(false);
             alert(`Error submitting rating: ${error.message}`);
         }
+    };
+
+    const renderRatingUI = () => {
+        if (ratingSubmittedRef.current || ratingStep === 'none') return null;
+        if (ratingStep === 'thankyou') {
+            return (
+                <div className="rating-prompt">
+                    <div className="rating-thankyou">
+                        <div className="rating-thankyou-icon">✅</div>
+                        <div className="rating-thankyou-title">
+                            {testMode ? 'Thanks for rating! (Test mode — not saved)' : 'Thank you for your feedback!'}
+                        </div>
+                        <div className="rating-thankyou-subtitle">
+                            {testMode ? 'Your rating helps us improve the chatbot experience.' : 'Your feedback helps us serve you better.'}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        if (ratingStep === 'feedback') {
+            return (
+                <div className="rating-prompt">
+                    <div className="rating-feedback-step">
+                        <div className="rating-message">Any additional feedback? (optional)</div>
+                        <textarea
+                            className="rating-feedback-input"
+                            placeholder="Tell us more about your experience..."
+                            value={ratingFeedback}
+                            onChange={(e) => setRatingFeedback(e.target.value)}
+                            rows={3}
+                            maxLength={500}
+                        />
+                        <div className="rating-feedback-charcount">{ratingFeedback.length}/500</div>
+                        <div className="rating-actions">
+                            <button
+                                className="rating-submit highlighted"
+                                onClick={() => handleRatingSubmit(selectedRating, ratingFeedback)}
+                                disabled={ratingSubmitting}
+                            >
+                                {ratingSubmitting ? <span className="rating-spinner" /> : 'Submit Feedback'}
+                            </button>
+                            <button
+                                className="rating-skip"
+                                onClick={() => handleRatingSubmit(selectedRating, '')}
+                                disabled={ratingSubmitting}
+                            >
+                                {ratingSubmitting ? <span className="rating-spinner" /> : 'Skip'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+        return (
+            <div className="rating-prompt">
+                <div className="rating-stars-step">
+                    <div className="rating-message">{ratingMessage || 'How was your experience?'}</div>
+                    <div className="rating-stars">
+                        {[1, 2, 3, 4, 5].map(star => (
+                            <button
+                                key={star}
+                                className={`rating-star ${selectedRating >= star ? 'selected' : ''}`}
+                                onClick={() => {
+                                    console.log(`⭐ Star ${star} clicked!`);
+                                    setSelectedRating(star);
+                                }}
+                                title={['Poor', 'Fair', 'Good', 'Great', 'Excellent'][star - 1]}
+                            >
+                                ⭐
+                            </button>
+                        ))}
+                    </div>
+                    <div className="rating-star-labels">
+                        <span>Poor</span>
+                        <span>Fair</span>
+                        <span>Good</span>
+                        <span>Great</span>
+                        <span>Excellent</span>
+                    </div>
+                    <div className="rating-actions">
+                        <button
+                            className={`rating-submit ${selectedRating > 0 ? 'highlighted' : ''}`}
+                            onClick={() => {
+                                if (selectedRating > 0) {
+                                    setRatingStep('feedback');
+                                }
+                            }}
+                            disabled={selectedRating === 0}
+                        >
+                            Continue
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     const handleSendMessage = async () => {
@@ -468,7 +620,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                         body: JSON.stringify({
                             chatbot_id: Number(effectiveChatbotId),
                             is_embed: true,
-                            website_context: websiteContext  // Let backend create title from website context
+                            website_context: websiteContext,
+                            welcome_message: themeConfig?.welcomeMessage || null
                         })
                     });
 
@@ -597,7 +750,36 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                                             currentShowRating: showRating
                                         });
                                         setShowRating(true);
+                                        setRatingStep('stars');
+                                        setSelectedRating(0);
+                                        setRatingFeedback('');
+                                        setRatingSubmitting(false);
+                                        ratingSubmittedRef.current = false;
                                         setRatingMessage(data.data.rating_message || 'How would you rate your experience?');
+
+                                        // Remove any old rating messages and insert fresh one
+                                        setMessages(prev => {
+                                            let updated = prev.filter(m => m.message_type !== 'rating');
+                                            // Find last user message index
+                                            let lastUserIdx = -1;
+                                            for (let i = updated.length - 1; i >= 0; i--) {
+                                                if (updated[i].message_type === 'user') {
+                                                    lastUserIdx = i;
+                                                    break;
+                                                }
+                                            }
+                                            const insertIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : updated.length;
+                                            updated.splice(insertIdx, 0, {
+                                                message_type: 'rating',
+                                                rating_message: data.data.rating_message || 'How would you rate your experience?',
+                                                timestamp: new Date().toISOString()
+                                            });
+                                            if (testMode) {
+                                                try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
+                                            }
+                                            return updated;
+                                        });
+
                                         // Persist so a re-mount still shows the rating
                                         try {
                                             const key = getRatingStorageKey(conversationId || currentConversationId);
@@ -824,8 +1006,18 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                         conversationId: currentConversationId,
                         ratingMessage: data.rating_message
                     });
+                    ratingSubmittedRef.current = false;
+                    setRatingSubmitting(false);
                     setShowRating(true);
+                    setRatingStep('stars');
                     setRatingMessage(data.rating_message || 'How would you rate your experience?');
+                } else if (testMode && data.show_rating) {
+                    // Test mode also shows rating but won't save
+                    ratingSubmittedRef.current = false;
+                    setRatingSubmitting(false);
+                    setShowRating(true);
+                    setRatingStep('stars');
+                    setRatingMessage(data.rating_message || 'How would you rate your experience? (Test mode)');
                 } else {
                     console.log('📝 No rating prompt in response');
                 }
@@ -845,6 +1037,16 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                     }
                     return updated;
                 });
+
+                // Check for rating prompt in test mode JSON response
+                if (data.show_rating) {
+                    console.log('🌟 Test mode: Rating prompt triggered!');
+                    ratingSubmittedRef.current = false;
+                    setRatingSubmitting(false);
+                    setShowRating(true);
+                    setRatingStep('stars');
+                    setRatingMessage(data.rating_message || 'How would you rate your experience? (Test mode)');
+                }
             } else {
                 console.warn('⚠️ No assistant message in response:', data);
             }
@@ -852,15 +1054,23 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         } catch (error) {
             console.error('❌ Error sending message:', error);
 
-            // Add error message to UI
-            const errorMessage = {
-                message_type: 'assistant',
-                content: `Sorry, I encountered an error: ${error.message}. Please try again.`,
-                timestamp: new Date().toISOString(),
-                isError: true
-            };
+            // Clean up empty placeholder assistant message if streaming failed
             setMessages(prev => {
-                const updated = [...prev, errorMessage];
+                let updated = [...prev];
+                // Remove the empty placeholder message that was created during streaming
+                const placeholderIdx = updated.findIndex(
+                    m => m.message_type === 'assistant' && (!m.content || m.content.trim() === '') && m.isStreaming
+                );
+                if (placeholderIdx !== -1) {
+                    updated.splice(placeholderIdx, 1);
+                }
+                // Add error message
+                updated.push({
+                    message_type: 'assistant',
+                    content: `Sorry, I encountered an error: ${error.message}. Please try again.`,
+                    timestamp: new Date().toISOString(),
+                    isError: true
+                });
                 if (testMode) {
                     try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
                 }
@@ -893,6 +1103,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         }
 
         // Clear local state
+        loadedFromAPI.current = false;
+        ratingSubmittedRef.current = false;
         setMessages([{
             message_type: 'assistant',
             content: themeConfig?.welcomeMessage || `Hello! I'm ${chatbotInfo?.name || 'Assistant'}. How can I help you today?`,
@@ -969,12 +1181,22 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                         </div>
                     </div>
 
-                    <div className="chat-messages">
+                    <div className="chat-messages" ref={messagesContainerRef}>
                         {messages.map((message, index) => {
                             // Don't render empty streaming messages
                             if (message.message_type === 'assistant' && message.isStreaming && !message.content) {
                                 return null;
                             }
+
+                            // Render rating prompt inline as a message
+                            if (message.message_type === 'rating') {
+                                return (
+                                    <div key={index} className="rating-inline">
+                                        {renderRatingUI()}
+                                    </div>
+                                );
+                            }
+
                             const isAssistant = message.message_type === 'assistant';
                             // While the response is actively streaming we keep
                             // the plain-text renderer to avoid KaTeX / markdown
@@ -999,6 +1221,13 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                                 </div>
                             );
                         })}
+                        {/* Fallback: show rating after messages if loaded from localStorage on reload
+                            but the rating message isn't in the messages array */}
+                        {showRating && !messages.some(m => m.message_type === 'rating') && (
+                            <div className="rating-inline">
+                                {renderRatingUI()}
+                            </div>
+                        )}
                         {isTyping && (
                             <div className="message assistant typing">
                                 <div className="message-content">
@@ -1008,50 +1237,6 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                                         <span></span>
                                         <span></span>
                                     </span>
-                                </div>
-                            </div>
-                        )}
-                        
-                        {/* Rating Prompt */}
-                        {console.log('🎨 Rendering - showRating:', showRating, 'ratingMessage:', ratingMessage)}
-                        {showRating && (
-                            <div className="rating-prompt">
-                                <div className="rating-message">{ratingMessage}</div>
-                                <div className="rating-stars">
-                                    {[1, 2, 3, 4, 5].map(star => (
-                                        <button
-                                            key={star}
-                                            className={`rating-star ${selectedRating >= star ? 'selected' : ''}`}
-                                            onClick={() => {
-                                                console.log(`⭐ Star ${star} clicked! Previous rating: ${selectedRating}`);
-                                                setSelectedRating(star);
-                                                console.log(`⭐ New rating should be: ${star}`);
-                                            }}
-                                        >
-                                            ⭐
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="rating-actions">
-                                    <button 
-                                        className={`rating-submit ${selectedRating > 0 ? 'highlighted' : ''}`}
-                                        onClick={() => handleRatingSubmit(selectedRating)}
-                                        disabled={selectedRating === 0}
-                                    >
-                                        Submit Rating
-                                    </button>
-                                    <button 
-                                        className="rating-skip"
-                                        onClick={() => {
-                                            setShowRating(false);
-                                            try {
-                                                const key = getRatingStorageKey(conversationId);
-                                                if (key) localStorage.removeItem(key);
-                                            } catch (_) {}
-                                        }}
-                                    >
-                                        Skip
-                                    </button>
                                 </div>
                             </div>
                         )}

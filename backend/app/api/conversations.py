@@ -6,10 +6,35 @@ import json
 import re
 from . import api, rate_limit
 from ..decorators import login_required
-from ..models import Conversation, Message, ConversationFeedback, Chatbot
+from ..models import Conversation, Message, ConversationFeedback, Chatbot, Tenant
 from .. import db
 from ..services import chatbot_defaults
-from sqlalchemy import desc
+from sqlalchemy import desc, func
+
+
+def _context_has_meaningful_content(text):
+    """Check if text has enough readable English words to be usable as context (vs binary garbage from corrupted embeddings)."""
+    if not text or not text.strip():
+        return False
+    words = re.findall(r'[A-Za-z]{3,}', text)
+    return len(words) >= 5
+
+
+def _context_relevant_to_query(context_text, query):
+    """Quick heuristic: if the query mentions a specific noun/term that is completely absent from the context, the context likely does not answer the query. Returns True if we should proceed with context, False if we should fall back to out_of_scope."""
+    if not context_text or not query:
+        return True
+    query_lower = query.lower()
+    context_lower = context_text.lower()
+    # Extract significant words (4+ chars) from the query
+    query_words = [w for w in re.findall(r'[A-Za-z0-9]{4,}', query_lower) if w not in {'what', 'when', 'where', 'why', 'how', 'does', 'is', 'the', 'this', 'that', 'with', 'from', 'have', 'are', 'was', 'were', 'can', 'you', 'tell', 'give', 'some'}]
+    if not query_words:
+        return True
+    # If ANY significant query word appears in context, consider it relevant enough
+    for w in query_words:
+        if w in context_lower:
+            return True
+    return False
 
 
 def stream_response_chunks(text, chunk_size=1, delay=0.005):
@@ -158,6 +183,20 @@ def create_conversation():
         conv = Conversation(**conv_data)
         db.session.add(conv)
         db.session.commit()
+
+        # Save welcome message if provided (so it appears in message history on reload)
+        welcome_message = data.get('welcome_message')
+        if welcome_message:
+            from ..models.conversation import Message
+            welcome_msg = Message(
+                conversation_id=conv.id,
+                content=welcome_message,
+                message_type='assistant',
+                created_at=datetime.utcnow()
+            )
+            db.session.add(welcome_msg)
+            db.session.commit()
+            current_app.logger.info(f"💬 Saved welcome message for conversation {conv.id}")
 
         current_app.logger.info(f"✅ Created conversation {conv.id} with title: '{conv.title}' for domain: {source_domain or 'unknown'}")
 
@@ -601,8 +640,10 @@ def get_conversation_messages_public(conversation_id):
             current_app.logger.error(f"❌ Conversation {conversation_id} not found")
             return jsonify({'error': 'Conversation not found'}), 404
 
-        # Only allow access to embed conversations for security
-        if not conversation.is_embed:
+        # Allow access to conversations that came from an embed (have source_domain)
+        # or were created without a user_id (embed conversations).
+        is_embed = getattr(conversation, 'source_domain', None) or not conversation.user_id
+        if not is_embed:
             current_app.logger.error(f"❌ Conversation {conversation_id} is not an embed conversation")
             return jsonify({'error': 'Access denied'}), 403
 
@@ -744,12 +785,48 @@ def send_message_json(conversation_id):
         try:
             # Check if this is a greeting or farewell message
             is_greeting = conversation_service.is_greeting(content)
-            is_farewell = conversation_service.is_farewell(content)
+
+            # Get last assistant message for smart farewell detection
+            last_assistant_msg = ""
+            try:
+                last_msg = Message.query.filter_by(
+                    conversation_id=conversation_id,
+                    message_type='assistant'
+                ).order_by(Message.created_at.desc()).first()
+                if last_msg:
+                    last_assistant_msg = last_msg.content or ""
+            except Exception:
+                pass
+            is_farewell = conversation_service.is_smart_farewell(content, last_assistant_msg)
 
             # Detect conversation ending
             if is_farewell:
-                conversation_service.detect_conversation_ending(content, conversation_id)
+                conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
 
+            # === EARLY EXIT: farewell gets rating INSTANTLY, skip RAG/LLM ===
+            if is_farewell:
+                config = chatbot.config or {}
+                content_lower = content.lower()
+                if 'thank' in content_lower:
+                    rating_message = "You're welcome! How would you rate our conversation?"
+                elif any(word in content_lower for word in ['bye', 'goodbye']):
+                    rating_message = "Thanks for chatting! How was your experience?"
+                elif any(word in content_lower for word in ['done', 'finish']):
+                    rating_message = "Great! Before you go, how would you rate our chat?"
+                else:
+                    rating_message = "How would you rate your experience with me today?"
+
+                farewell_response = conversation_service.get_farewell_response(config)
+                return jsonify({
+                    'success': True,
+                    'response': farewell_response,
+                    'message': 'Message processed successfully',
+                    'show_rating': True,
+                    'rating_message': rating_message,
+                    'conversation_id': conversation_id
+                })
+
+            # === REST OF RAG/LLM ONLY FOR NON-FAREWELL MESSAGES ===
             # Get context from processed chunks stored in database/vector store
             context_text = ""
 
@@ -862,13 +939,13 @@ def send_message_json(conversation_id):
 
             # Check if we have relevant context from the knowledge base
             current_app.logger.info(f"🔍 Checking fallback condition: restrict={restrict_to_knowledge_base}, context_empty={not context_text}, context_strip_empty={not context_text.strip() if context_text else True}")
-            if restrict_to_knowledge_base and (not context_text or not context_text.strip()):
+            if restrict_to_knowledge_base and (not context_text or not context_text.strip() or not _context_has_meaningful_content(context_text) or not _context_relevant_to_query(context_text, content)):
                 current_app.logger.warning(f"🔍 FALLBACK TRIGGERED: No context found for query: '{content}' in chatbot {chatbot_id}")
 
                 # No broader search needed with simple text search approach
 
                 # If still no context after broader search, return fallback message
-                if not context_text or not context_text.strip():
+                if not context_text or not context_text.strip() or not _context_has_meaningful_content(context_text) or not _context_relevant_to_query(context_text, content):
                     # Check if this is strict mode for better messaging
                     mode = config.get('mode', 'strict')
                     if mode == 'strict':
@@ -938,7 +1015,7 @@ def send_message_json(conversation_id):
             chatbot_role = personality.get('role', 'AI Assistant')
 
             if restrict_to_knowledge_base:
-                if context_text and context_text.strip():
+                if context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content):
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.strict',
                         chatbot_name=chatbot_name,
@@ -957,6 +1034,7 @@ def send_message_json(conversation_id):
                         refusal_message="I'm sorry, but I can't find an answer to your question right now.",
                     )
             else:
+                # Permissive mode — context-first, fallback allowed
                 full_system_message = system_message + "\n\n" + prompt_svc.render(
                     'rag_system.permissive',
                     chatbot_name=chatbot_name,
@@ -1008,13 +1086,10 @@ def send_message_json(conversation_id):
                 current_app.logger.info("📦 CONTEXT SENT TO LLM: (empty)")
             # === END LLM CALL LOGGING ===
 
-            # Handle greetings and farewells with special responses
+            # Handle greetings — farewell is handled via early-exit above
             if is_greeting:
                 ai_response = conversation_service.get_greeting_response(config)
                 current_app.logger.info(f"👋 Greeting detected, using custom response")
-            elif is_farewell:
-                ai_response = conversation_service.get_farewell_response(config)
-                current_app.logger.info(f"👋 Farewell detected, using custom response")
             else:
                 # Generate normal AI response
                 ai_response = ""
@@ -1153,8 +1228,23 @@ This chatbot is configured to use the {ai_model} model."""
 
             except Exception as e:
                 current_app.logger.error(f"❌ Error in intent analysis: {e}")
-                # Fallback to original rating logic
-            show_rating = conversation_service.should_show_rating_prompt(conversation_id)
+
+            # FALLBACK: If intent analysis didn't set show_rating but farewell
+            # was detected, still trigger rating. This ensures rating appears
+            # even when intent analysis service is unavailable or errors.
+            if not show_rating and is_farewell:
+                conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
+                show_rating = True
+                content_lower = content.lower()
+                if 'thank' in content_lower:
+                    rating_message = "You're welcome! How would you rate our conversation?"
+                elif any(w in content_lower for w in ['bye', 'goodbye']):
+                    rating_message = "Thanks for chatting! How was your experience?"
+                elif any(w in content_lower for w in ['done', 'finish']):
+                    rating_message = "Great! Before you go, how would you rate our chat?"
+                else:
+                    rating_message = "How would you rate your experience with me today?"
+                current_app.logger.info(f"🌟 [FALLBACK] Farewell detected, showing rating")
 
             response_data = {
                 'success': True,
@@ -1222,8 +1312,51 @@ def send_message_stream(conversation_id):
             conversation_service = ConversationService()
 
             is_greeting = conversation_service.is_greeting(content)
-            is_farewell = conversation_service.is_farewell(content)
 
+            # Get last assistant message for smart farewell detection
+            last_assistant_msg = ""
+            try:
+                last_msg = Message.query.filter_by(
+                    conversation_id=conversation_id,
+                    message_type='assistant'
+                ).order_by(Message.created_at.desc()).first()
+                if last_msg:
+                    last_assistant_msg = last_msg.content or ""
+            except Exception:
+                pass
+            is_farewell = conversation_service.is_smart_farewell(content, last_assistant_msg)
+
+            # Detect conversation ending
+            if is_farewell:
+                conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
+
+            # === EARLY EXIT: farewell gets rating INSTANTLY, skip RAG/LLM ===
+            if is_farewell:
+                config = chatbot.config or {}
+                content_lower = content.lower()
+                if 'thank' in content_lower:
+                    rating_message = "You're welcome! How would you rate our conversation?"
+                elif any(word in content_lower for word in ['bye', 'goodbye']):
+                    rating_message = "Thanks for chatting! How was your experience?"
+                elif any(word in content_lower for word in ['done', 'finish']):
+                    rating_message = "Great! Before you go, how would you rate our chat?"
+                else:
+                    rating_message = "How would you rate your experience with me today?"
+
+                rating_data = {
+                    'show_rating': True,
+                    'rating_message': rating_message,
+                    'conversation_id': conversation_id
+                }
+                yield f"data: {json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
+                current_app.logger.info(f"🌟 [STREAM] Sent rating INSTANTLY: {rating_message}")
+
+                farewell_response = conversation_service.get_farewell_response(config)
+                for chunk in stream_response_chunks(farewell_response, chunk_size=1, delay=0.005):
+                    yield chunk
+                return
+
+            # === REST OF RAG/LLM ONLY FOR NON-FAREWELL MESSAGES ===
             # Get AI configuration
             config = chatbot.config or {}
             try:
@@ -1294,7 +1427,7 @@ def send_message_stream(conversation_id):
             chatbot_role = personality.get('role', 'AI Assistant')
 
             if restrict_to_knowledge_base:
-                if context_text and context_text.strip():
+                if context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content):
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.strict',
                         chatbot_name=chatbot_name,
@@ -1304,6 +1437,7 @@ def send_message_stream(conversation_id):
                     )
                     current_app.logger.info(f"🔒 [STREAM] STRICT MODE LOCKED - Using KB context (length: {len(context_text)})")
                 else:
+                    current_app.logger.info(f"🔒 [STREAM] STRICT MODE LOCKED - Context empty/garbage ({len(context_text) if context_text else 0} chars), refusing to answer")
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.out_of_scope',
                         chatbot_name=chatbot_name,
@@ -1312,7 +1446,6 @@ def send_message_stream(conversation_id):
                         context='',
                         refusal_message="I'm sorry, but I can't find an answer to your question in my database right now.",
                     )
-                    current_app.logger.info("🔒 [STREAM] STRICT MODE LOCKED - NO KB context, refusing to answer")
             else:
                 if context_text and context_text.strip():
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
@@ -1371,15 +1504,12 @@ def send_message_stream(conversation_id):
             # === END LLM CALL LOGGING ===
 
             # Generate AI response with real-time streaming
+            # NOTE: farewell is handled via early-exit above — only greeting/LLM here
             ai_response = ""
+
             if is_greeting:
                 ai_response = conversation_service.get_greeting_response(config)
                 # Stream the greeting response
-                for chunk in stream_response_chunks(ai_response, chunk_size=1, delay=0.005):
-                    yield chunk
-            elif is_farewell:
-                ai_response = conversation_service.get_farewell_response(config)
-                # Stream the farewell response
                 for chunk in stream_response_chunks(ai_response, chunk_size=1, delay=0.005):
                     yield chunk
             elif current_app.llm_service:
@@ -1470,38 +1600,6 @@ def send_message_stream(conversation_id):
             current_app.logger.info(f"💾 Saved message with response_time: {response_time:.2f}s")
 
             current_app.logger.info(f"🌊 Streaming response: {len(ai_response)} chars, type: {type(ai_response)}")
-
-            # SIMPLIFIED RATING LOGIC - Show rating immediately on farewell without slow API call
-            show_rating = False
-            rating_message = 'How would you rate your experience?'
-
-            if is_farewell:
-                # Mark conversation as ended
-                conversation_service.detect_conversation_ending(content, conversation_id)
-
-                # Determine personalized rating message based on farewell type
-                content_lower = content.lower()
-                if 'thank' in content_lower:
-                    rating_message = "You're welcome! How would you rate our conversation?"
-                elif any(word in content_lower for word in ['bye', 'goodbye']):
-                    rating_message = "Thanks for chatting! How was your experience?"
-                elif any(word in content_lower for word in ['done', 'finish']):
-                    rating_message = "Great! Before you go, how would you rate our chat?"
-                else:
-                    rating_message = "How would you rate your experience with me today?"
-
-                show_rating = True
-                current_app.logger.info(f"🌟 [STREAM] Farewell detected, showing rating prompt")
-
-            # Send rating prompt as final message if conversation ended
-            if show_rating:
-                rating_data = {
-                    'show_rating': True,
-                    'rating_message': rating_message,
-                    'conversation_id': conversation_id
-                }
-                yield f"data: {json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
-                current_app.logger.info(f"🌟 [STREAM] Sent rating prompt: {rating_message}")
 
         except Exception as e:
             current_app.logger.error(f"Streaming error: {e}")
@@ -1709,9 +1807,8 @@ def add_satisfaction_rating(conversation_id):
             db.session.commit()
             current_app.logger.info(f"✅ Conversation {conversation_id} marked as ended for rating submission")
 
-        # Check if already rated
-        if conversation.satisfaction_rating is not None:
-            return jsonify({'error': 'Conversation already rated'}), 400
+        # Allow re-feedback — overwrite previous rating if exists
+        # (users may want to change their rating after re-thinking)
 
         # Add satisfaction rating using conversation service
         from ..services.conversation_service import ConversationService
@@ -1964,3 +2061,145 @@ def cleanup_conversations():
         db.session.rollback()
         current_app.logger.error(f"Error cleaning up conversations: {str(e)}")
         return jsonify({'error': 'Failed to cleanup conversations'}), 500
+
+
+# =============================================================
+# FEEDBACK ENDPOINTS
+# =============================================================
+
+@api.route('/conversations/feedback', methods=['GET'])
+@login_required
+def get_feedback_list():
+    """Get all feedback with star ratings for the current tenant (from ConversationFeedback table — every submission preserved)."""
+    try:
+        tenant = Tenant.query.filter_by(tenant_id=g.user_tenant_id).first()
+        if not tenant:
+            return jsonify({'error': 'Tenant not found'}), 404
+
+        chatbot_id = request.args.get('chatbot_id', type=int)
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 20, type=int)
+        min_rating = request.args.get('min_rating', type=int)
+        max_rating = request.args.get('max_rating', type=int)
+
+        # Query ConversationFeedback (every rating submission) with feedback_type='rating'
+        query = ConversationFeedback.query.join(
+            Conversation, ConversationFeedback.conversation_id == Conversation.id
+        ).filter(
+            Conversation.tenant_id == tenant.id,
+            Conversation.status != 'deleted',
+            ConversationFeedback.feedback_type == 'rating'
+        )
+
+        if chatbot_id:
+            query = query.filter(Conversation.chatbot_id == chatbot_id)
+        if min_rating:
+            query = query.filter(ConversationFeedback.rating >= min_rating)
+        if max_rating:
+            query = query.filter(ConversationFeedback.rating <= max_rating)
+
+        total = query.count()
+        feedbacks = query.order_by(ConversationFeedback.created_at.desc()).offset(
+            (page - 1) * per_page
+        ).limit(per_page).all()
+
+        result = []
+        for fb in feedbacks:
+            conv = Conversation.query.get(fb.conversation_id)
+            chatbot = Chatbot.query.get(conv.chatbot_id) if conv and conv.chatbot_id else None
+            result.append({
+                'id': fb.id,
+                'rating': fb.rating,
+                'feedback_text': fb.feedback_text,
+                'created_at': fb.created_at.isoformat() if fb.created_at else None,
+                'conversation_id': fb.conversation_id,
+                'chatbot': {
+                    'id': chatbot.id if chatbot else None,
+                    'name': chatbot.name if chatbot else 'Unknown'
+                } if chatbot else None,
+                'source_platform': conv.source_platform or 'web' if conv else 'web',
+                'language': conv.language or 'en' if conv else 'en'
+            })
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'feedbacks': result,
+                'total': total,
+                'page': page,
+                'per_page': per_page,
+                'pages': (total + per_page - 1) // per_page
+            }
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Error getting feedback list: {str(e)}")
+        return jsonify({'error': 'Failed to get feedback'}), 500
+
+
+@api.route('/conversations/feedback/stats', methods=['GET'])
+@login_required
+def get_feedback_stats():
+    """Get aggregated feedback statistics from ConversationFeedback table (every rating submission preserved)."""
+    try:
+        tenant = Tenant.query.filter_by(tenant_id=g.user_tenant_id).first()
+        if not tenant:
+            return jsonify({'error': 'Tenant not found'}), 404
+
+        chatbot_id = request.args.get('chatbot_id', type=int)
+
+        # Build base join: ConversationFeedback → Conversation (for tenant/chatbot filters)
+        feedback_query = ConversationFeedback.query.join(
+            Conversation, ConversationFeedback.conversation_id == Conversation.id
+        ).filter(
+            Conversation.tenant_id == tenant.id,
+            Conversation.status != 'deleted',
+            ConversationFeedback.feedback_type == 'rating'
+        )
+
+        if chatbot_id:
+            feedback_query = feedback_query.filter(Conversation.chatbot_id == chatbot_id)
+
+        # Total rated submissions (every individual rating, not just unique conversations)
+        total_ratings = feedback_query.count()
+
+        # Average rating from all submissions
+        avg_result = db.session.query(
+            func.avg(ConversationFeedback.rating)
+        ).filter(
+            ConversationFeedback.id.in_(feedback_query.with_entities(ConversationFeedback.id))
+        ).scalar()
+        avg_rating = float(avg_result) if avg_result else 0.0
+
+        # Rating distribution (1-5)
+        rating_distribution = {}
+        for star in range(1, 6):
+            count = feedback_query.filter(ConversationFeedback.rating == star).count()
+            rating_distribution[str(star)] = count
+
+        # Total feedbacks with text
+        total_feedbacks = feedback_query.filter(
+            ConversationFeedback.feedback_text.isnot(None),
+            ConversationFeedback.feedback_text != ''
+        ).count()
+
+        # Total conversations (denominator for rate)
+        total_conversations = Conversation.query.filter(
+            Conversation.tenant_id == tenant.id,
+            Conversation.status != 'deleted'
+        ).count()
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'total_ratings': total_ratings,
+                'avg_rating': round(avg_rating, 2),
+                'rating_distribution': rating_distribution,
+                'total_feedbacks': total_feedbacks,
+                'satisfaction_rate': round((total_ratings / total_conversations * 100), 1) if total_conversations > 0 else 0
+            }
+        })
+
+    except Exception as e:
+        current_app.logger.error(f"Error getting feedback stats: {str(e)}")
+        return jsonify({'error': 'Failed to get feedback stats'}), 500

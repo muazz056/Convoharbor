@@ -3,12 +3,36 @@
 from flask import request, current_app, jsonify, g
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
+import re
 from . import api
 from ..decorators import login_required, super_admin_required
 from ..models import Chatbot, DataSource, Tenant, AiModel
 from .. import db
 from ..services import chatbot_defaults
 from flasgger.utils import swag_from
+
+
+def _context_has_meaningful_content(text):
+    """Check if text has enough readable English words vs binary garbage (corrupted embeddings)."""
+    if not text or not text.strip():
+        return False
+    words = re.findall(r'[A-Za-z]{3,}', text)
+    return len(words) >= 5
+
+
+def _context_relevant_to_query(context_text, query):
+    """Quick heuristic: if the query's key noun is absent from context, context likely doesn't answer it."""
+    if not context_text or not query:
+        return True
+    query_lower = query.lower()
+    context_lower = context_text.lower()
+    query_words = [w for w in re.findall(r'[A-Za-z0-9]{4,}', query_lower) if w not in {'what', 'when', 'where', 'why', 'how', 'does', 'is', 'the', 'this', 'that', 'with', 'from', 'have', 'are', 'was', 'were', 'can', 'you', 'tell', 'give', 'some'}]
+    if not query_words:
+        return True
+    for w in query_words:
+        if w in context_lower:
+            return True
+    return False
 
 
 @api.route('/chatbots', methods=['POST'])
@@ -1694,15 +1718,32 @@ def send_test_message(chatbot_id):
 
         # Check for greetings and farewells
         is_greeting = conversation_service.is_greeting(message)
-        is_farewell = conversation_service.is_farewell(message)
+
+        # Smart farewell: check if last assistant message had a follow-up question
+        last_assistant_msg = ""
+        history = data.get('conversation_history', [])
+        for msg in reversed(history):
+            if msg.get('role') == 'assistant':
+                last_assistant_msg = msg.get('content', '')
+                break
+        is_farewell = conversation_service.is_smart_farewell(message, last_assistant_msg)
 
         # Handle greetings and farewells with special responses
-        if is_greeting:
+        # IMPORTANT: farewell takes priority over greeting — if user says "hi bye"
+        # or "thanks" after the conversation is wrapping up, treat as farewell
+        if is_farewell:
+            farewell_response = conversation_service.get_farewell_response(config)
+            # Test mode: include show_rating so the widget shows the rating UI
+            return jsonify({
+                'success': True,
+                'response': farewell_response,
+                'show_rating': True,
+                'rating_message': 'How would you rate your experience? (Test mode)',
+                'message': 'Test farewell processed successfully'
+            })
+        elif is_greeting:
             greeting_response = conversation_service.get_greeting_response(config)
             return jsonify({'success': True, 'response': greeting_response, 'message': 'Test greeting processed successfully'})
-        elif is_farewell:
-            farewell_response = conversation_service.get_farewell_response(config)
-            return jsonify({'success': True, 'response': farewell_response, 'message': 'Test farewell processed successfully'})
 
         # Determine restriction based on chatbot mode configuration
         restrict_to_knowledge_base = conversation_service.should_restrict_to_knowledge_base(message, config)
@@ -1734,7 +1775,7 @@ def send_test_message(chatbot_id):
         chatbot_role = personality.get('role', 'AI Assistant')
 
         if restrict_to_knowledge_base:
-            if context_text and context_text.strip():
+            if context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, message):
                 full_system = system_message + "\n\n" + prompt_svc.render(
                     'rag_system.strict',
                     chatbot_name=chatbot_name,
@@ -1791,7 +1832,7 @@ def send_test_message(chatbot_id):
                 # makes the LLM pick the most likely completion given the
                 # prompt and prevents it from "generating" training-data hints
                 # like "However, I think you might be referencing...".
-                if restrict_to_knowledge_base and not (context_text and context_text.strip()):
+                if restrict_to_knowledge_base and not (context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, message)):
                     call_config = dict(config)
                     call_config['temperature'] = 0.0
                     call_config['max_tokens'] = min(
@@ -1833,7 +1874,16 @@ def send_test_message(chatbot_id):
 
             def generate_test_stream():
                 try:
-                    # Stream the response with typewriter effect
+                    # Send rating FIRST so widget shows it immediately
+                    if is_farewell:
+                        import json as _json
+                        rating_data = {
+                            'show_rating': True,
+                            'rating_message': 'How would you rate your experience? (Test mode)',
+                            'conversation_id': None
+                        }
+                        yield f"data: {_json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
+                    # Then stream the response with typewriter effect
                     for chunk in stream_response_chunks(ai_response, chunk_size=1, delay=0.005):
                         yield chunk
                 except Exception as e:
@@ -1851,7 +1901,12 @@ def send_test_message(chatbot_id):
             )
         else:
             # Regular JSON response for non-streaming requests
-            return jsonify({'success': True, 'response': ai_response, 'message': 'Test message processed successfully'})
+            response_payload = {'success': True, 'response': ai_response, 'message': 'Test message processed successfully'}
+            # Include show_rating if farewell was detected (safety net)
+            if is_farewell:
+                response_payload['show_rating'] = True
+                response_payload['rating_message'] = 'How would you rate your experience? (Test mode)'
+            return jsonify(response_payload)
 
     except Exception as e:
         current_app.logger.error(f"Error processing test message: {str(e)}")

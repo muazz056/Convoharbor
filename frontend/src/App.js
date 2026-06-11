@@ -17,6 +17,7 @@ import SetPassword from './components/SetPassword/SetPassword';
 import EmailConfirmation from './components/EmailConfirmation/EmailConfirmation';
 import Mychatbot from './components/Mychatbot/Mychatbot';
 import Analytics from './components/Analytics/Analytics';
+import Feedback from './components/Feedback/Feedback';
 import CreateBot from './components/CreateBot/CreateBot';
 import Overview from './components/Overview/Overview';
 import ConfigDesign from './components/ConfigDesign/ConfigDesign';
@@ -77,6 +78,11 @@ function App() {
                   <Route exact path="/analytics-kpis" element={
                     <ProtectedRoute requiredPermissions={['view_analytics']}>
                       <Analytics />
+                    </ProtectedRoute>
+                  } />
+                  <Route exact path="/feedback" element={
+                    <ProtectedRoute requiredPermissions={['view_analytics']}>
+                      <Feedback />
                     </ProtectedRoute>
                   } />
                   <Route exact path="/how-to-use" element={<HowToUse />} />

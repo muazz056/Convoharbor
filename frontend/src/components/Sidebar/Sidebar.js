@@ -1,7 +1,7 @@
 import './Sidebar.css';
 import React, { useState, useEffect } from 'react';
 import { NavLink, Link } from 'react-router-dom';
-import { MdMenu, MdClose, MdDashboard, MdAnalytics, MdChat, MdCreate, MdSettings, MdIntegrationInstructions, MdDataUsage, MdOutlineLibraryBooks, MdOutlineModelTraining, MdSupervisorAccount, MdHelpOutline } from 'react-icons/md';
+import { MdMenu, MdClose, MdDashboard, MdAnalytics, MdChat, MdCreate, MdSettings, MdIntegrationInstructions, MdDataUsage, MdOutlineLibraryBooks, MdOutlineModelTraining, MdSupervisorAccount, MdHelpOutline, MdStar } from 'react-icons/md';
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -30,6 +30,7 @@ const Sidebar = () => {
         items: [
           { name: 'Overview', icon: <MdDashboard /> },
           { name: 'Analytics & KPIs', icon: <MdAnalytics /> },
+          { name: 'Feedback', icon: <MdStar />, path: '/feedback' },
           { name: 'How to Use', icon: <MdHelpOutline /> },
         ],
       },

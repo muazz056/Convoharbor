@@ -84,55 +84,66 @@ def get_analytics_overview():
             )
         ).distinct().count()
 
-        # Calculate satisfaction rate from conversation ratings (new system)
-        rated_conversations = db.session.query(Conversation.id).filter(
-            *base_filters,
-            Conversation.satisfaction_rating.isnot(None)
+        # Calculate satisfaction rate from conversation ratings — count UNIQUE conversations with ratings
+        # (even though ConversationFeedback stores every submission, we count distinct conversation_ids
+        # so the rate stays mathematically consistent)
+        rated_subquery = db.session.query(ConversationFeedback.conversation_id).filter(
+            ConversationFeedback.feedback_type == 'rating',
+            Conversation.status != 'deleted',
+            Conversation.tenant_id == tenant_integer_id
+        ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).distinct().subquery()
+
+        all_rated_conversations = db.session.query(rated_subquery.c.conversation_id).distinct().count()
+
+        all_positive_rated_conversations = db.session.query(ConversationFeedback.conversation_id).filter(
+            ConversationFeedback.feedback_type == 'rating',
+            ConversationFeedback.rating >= 4,
+            Conversation.status != 'deleted',
+            Conversation.tenant_id == tenant_integer_id
+        ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).distinct().count()
+
+        # Count ALL conversations for this tenant (no date restriction) — used as
+        # denominator for satisfaction rate so the rate shows ALL chatbots combined
+        all_conversations = db.session.query(Conversation.id).filter(
+            Conversation.tenant_id == tenant_integer_id,
+            Conversation.status != 'deleted'
         ).distinct().count()
 
-        positive_rated_conversations = db.session.query(Conversation.id).filter(
-            *base_filters,
-            Conversation.satisfaction_rating >= 4  # 4-5 stars considered positive
-        ).distinct().count()
+        # Also get date-restricted counts for the period card
+        period_rated_subquery = db.session.query(ConversationFeedback.conversation_id).filter(
+            ConversationFeedback.feedback_type == 'rating',
+            Conversation.created_at >= start_date,
+            Conversation.status != 'deleted',
+            Conversation.tenant_id == tenant_integer_id
+        ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).distinct().subquery()
 
-        # Debug: Check what conversations we have with ratings
-        debug_conversations = db.session.query(
-            Conversation.id,
-            Conversation.satisfaction_rating,
-            Conversation.created_at,
-            Conversation.chatbot_id
-        ).filter(*base_filters).all()
+        rated_conversations = db.session.query(period_rated_subquery.c.conversation_id).distinct().count()
 
-        current_app.logger.info(f"🔍 Debug: Found {len(debug_conversations)} total conversations in date range")
-        rated_debug = [c for c in debug_conversations if c.satisfaction_rating is not None]
-        current_app.logger.info(f"🔍 Debug: {len(rated_debug)} conversations have ratings")
+        positive_rated_conversations = db.session.query(ConversationFeedback.conversation_id).filter(
+            ConversationFeedback.feedback_type == 'rating',
+            ConversationFeedback.rating >= 4,
+            Conversation.created_at >= start_date,
+            Conversation.status != 'deleted',
+            Conversation.tenant_id == tenant_integer_id
+        ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).distinct().count()
 
-        for conv in rated_debug:
-            current_app.logger.info(f"🔍 Debug: Conversation {conv.id} (chatbot {conv.chatbot_id}) has rating {conv.satisfaction_rating}/5")
-
-        # Calculate satisfaction rate based on average rating (improved method)
-        if rated_conversations > 0:
-            # Get average rating and convert to percentage
-            avg_rating_result = db.session.query(func.avg(Conversation.satisfaction_rating)).filter(*base_filters).scalar()
-            avg_rating = float(avg_rating_result) if avg_rating_result else 0.0
-
-            # Convert 1-5 star rating to percentage (1 star = 20%, 5 stars = 100%)
-            satisfaction_rate = (avg_rating / 5.0 * 100)
-            current_app.logger.info(f"📊 Using conversation ratings: avg {avg_rating:.2f}/5 = {satisfaction_rate:.1f}%")
-            current_app.logger.info(f"📊 Based on {rated_conversations} rated conversations")
+        # Satisfaction rate over ALL conversations (combining all chatbots, all time)
+        if all_conversations > 0:
+            overall_satisfaction_rate = (all_rated_conversations / all_conversations * 100)
         else:
-            satisfaction_rate = (positive_feedback / total_feedback * 100) if total_feedback > 0 else 0
-            current_app.logger.info(f"📊 Using legacy feedback: {positive_feedback}/{total_feedback} = {satisfaction_rate:.1f}%")
+            overall_satisfaction_rate = 0
 
-        current_app.logger.info(f"📊 Final satisfaction rate: {satisfaction_rate:.1f}%")
+        current_app.logger.info(f"📊 Overall satisfaction: {all_rated_conversations}/{all_conversations} = {overall_satisfaction_rate:.1f}% (all-time rated / all-time total)")
 
-        # Get conversation end satisfaction ratings
+        # Get conversation end satisfaction ratings from ConversationFeedback
         conversation_satisfaction_query = db.session.query(
-            func.avg(Conversation.satisfaction_rating).label('avg_rating'),
-            func.count(Conversation.satisfaction_rating).label('rating_count')
-        ).filter(
-            *base_filters,
-            Conversation.satisfaction_rating.isnot(None)
+            func.avg(ConversationFeedback.rating).label('avg_rating'),
+            func.count(ConversationFeedback.id).label('rating_count')
+        ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).filter(
+            Conversation.tenant_id == tenant_integer_id,
+            Conversation.status != 'deleted',
+            ConversationFeedback.feedback_type == 'rating',
+            Conversation.created_at >= start_date
         ).first()
 
         avg_conversation_rating = float(conversation_satisfaction_query.avg_rating) if conversation_satisfaction_query.avg_rating else 0.0
@@ -154,25 +165,26 @@ def get_analytics_overview():
         # Calculate satisfaction rates for each chatbot separately
         top_chatbots = []
         for bot in top_chatbots_base:
-            # Get basic satisfaction data for this specific chatbot
+            # Get satisfaction data for this chatbot from ConversationFeedback (all time)
             satisfaction_data = db.session.query(
-                func.count(Conversation.satisfaction_rating).label('rated_conversations'),
-                func.avg(Conversation.satisfaction_rating).label('avg_rating')
-            ).filter(
+                func.count(ConversationFeedback.id).label('rated_submissions'),
+                func.avg(ConversationFeedback.rating).label('avg_rating'),
+                func.count(func.distinct(ConversationFeedback.conversation_id)).label('rated_conversations')
+            ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).filter(
                 Conversation.tenant_id == tenant_integer_id,
                 Conversation.chatbot_id == bot.id,
-                Conversation.created_at >= start_date,
-                Conversation.status != 'deleted'
+                Conversation.status != 'deleted',
+                ConversationFeedback.feedback_type == 'rating'
             ).first()
 
-            # Calculate satisfaction rate
+            # Satisfaction rate uses all_conversations as denominator (same as Feedback page)
             satisfaction_rate = 0
             rated_conversations = satisfaction_data.rated_conversations or 0
+            rated_submissions = satisfaction_data.rated_submissions or 0
             avg_rating = float(satisfaction_data.avg_rating) if satisfaction_data.avg_rating else 0.0
 
-            if rated_conversations > 0:
-                # Convert 1-5 star rating to percentage (1 star = 20%, 5 stars = 100%)
-                satisfaction_rate = (avg_rating / 5.0 * 100)
+            if all_conversations > 0:
+                satisfaction_rate = (rated_conversations / all_conversations * 100)
 
             top_chatbots.append({
                 'id': bot.id,
@@ -220,17 +232,17 @@ def get_analytics_overview():
                 },
                 'performance': {
                     'avg_response_time': round(avg_response_time, 2) if avg_response_time else 0,
-                    'satisfaction_rate': round(satisfaction_rate, 1)
+                    'satisfaction_rate': round(overall_satisfaction_rate, 1)
                 },
                 'feedback': {
                     'total': total_feedback,
                     'positive': positive_feedback,
                     'legacy_satisfaction_rate': round((positive_feedback / total_feedback * 100) if total_feedback > 0 else 0, 1),
-                    'satisfaction_rate': round(satisfaction_rate, 1),
+                    'satisfaction_rate': round(overall_satisfaction_rate, 1),
                     'avg_conversation_rating': round(avg_conversation_rating, 2),
                     'conversation_rating_count': conversation_rating_count,
-                    'rated_conversations': rated_conversations,
-                    'positive_rated_conversations': positive_rated_conversations
+                    'rated_conversations': all_rated_conversations,
+                    'positive_rated_conversations': all_positive_rated_conversations
                 },
                 'top_chatbots': top_chatbots,
                 'platforms': [

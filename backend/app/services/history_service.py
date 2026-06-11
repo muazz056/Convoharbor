@@ -124,10 +124,10 @@ def save_conversation_feedback(session_id: str, rating: int, tags: list | None, 
     # 3. Create and save the new feedback entry
     new_feedback = ConversationFeedback(
         conversation_id=conversation.id,
-        overall_rating=rating,
-        tags=tags,
-        comment=comment,
-        submitted_by_user_id=user_id
+        rating=rating,
+        feedback_type='rating',
+        feedback_text=comment,
+        user_id=user_id
     )
 
     db.session.add(new_feedback)

@@ -15,6 +15,7 @@ const Overview = () => {
   const [overviewData, setOverviewData] = useState(null);
   const [chatbots, setChatbots] = useState([]);
   const [error, setError] = useState(null);
+  const [selectedDays, setSelectedDays] = useState(30);
   useEffect(() => {
     AOS.init({
       duration: 800, // animation duration in ms
@@ -31,7 +32,7 @@ const Overview = () => {
         setError(null);
 
         const [analytics, chatbotsData] = await Promise.all([
-          analyticsService.getOverview({ days: 7, _t: Date.now() }),
+          analyticsService.getOverview({ days: selectedDays, _t: Date.now() }),
           chatbotService.getChatbots()
         ]);
 
@@ -52,7 +53,7 @@ const Overview = () => {
     };
 
     loadOverviewData();
-  }, []);
+  }, [selectedDays]);
 
   // Chart reference for cleanup
   const chartRef = React.useRef(null);
@@ -91,7 +92,7 @@ const Overview = () => {
       try {
     // Get timeseries data for chart
         console.log('📊 Fetching timeseries data...');
-        const timeseries = await analyticsService.getTimeseries({ days: 7, granularity: 'day' });
+        const timeseries = await analyticsService.getTimeseries({ days: selectedDays, granularity: 'day' });
         console.log('📊 Timeseries data received:', timeseries);
         
         let chartData;
@@ -279,7 +280,7 @@ const Overview = () => {
         chartRef.current = null;
       }
     };
-  }, [loading, overviewData]); // Reinitialize when data loads
+  }, [loading, overviewData, selectedDays]); // Reinitialize when data loads
 
     return (
         <div className="container mt-5">
@@ -357,9 +358,14 @@ const Overview = () => {
               <div className="overview-metric-card">
                 <div className="metric-header">
                   <div className="metric-info">
-                    <div className="overview-metric-title">Satisfaction Rate</div>
+                    <div className="overview-metric-title">Overall Satisfaction Rate</div>
                     <div className="overview-metric-value">
-                      {Math.round(overviewData?.performance?.satisfaction_rate ?? overviewData?.feedback?.satisfaction_rate ?? 0)}%
+                      {(() => {
+                        const raw = overviewData?.performance?.satisfaction_rate ?? overviewData?.feedback?.satisfaction_rate ?? 0;
+                        if (raw === 0) return '0';
+                        if (raw < 1) return raw.toFixed(1);
+                        return Math.round(raw);
+                      })()}%
                     </div>
                     <div className="metric-change positive">
                       <svg width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
@@ -381,9 +387,9 @@ const Overview = () => {
             <div className="chart-header">
               <h2 className="chart-title">Conversation Activity</h2>
               <div className="chart-actions">
-                <button className="chart-tab active">7 days</button>
-                <button className="chart-tab">30 days</button>
-                <button className="chart-tab">90 days</button>
+                <button className={`chart-tab ${selectedDays === 7 ? 'active' : ''}`} onClick={() => setSelectedDays(7)}>7 days</button>
+                <button className={`chart-tab ${selectedDays === 30 ? 'active' : ''}`} onClick={() => setSelectedDays(30)}>30 days</button>
+                <button className={`chart-tab ${selectedDays === 90 ? 'active' : ''}`} onClick={() => setSelectedDays(90)}>90 days</button>
               </div>
             </div>
             <div className="chart-wrapper">
@@ -432,7 +438,8 @@ const Overview = () => {
                   // Find stats for this bot from analytics
                   const botStats = overviewData?.top_chatbots?.find(b => b.id === bot.id);
                   const conversationCount = botStats?.message_count || 0;
-                  const satisfaction = Math.round(botStats?.satisfaction_rate || 0); // Real satisfaction data, rounded
+                  const rawSatisfaction = botStats?.satisfaction_rate || 0;
+                  const satisfaction = rawSatisfaction > 0 && rawSatisfaction < 1 ? rawSatisfaction.toFixed(1) : Math.round(rawSatisfaction);
                   
                   return (
                     <div className="chatbot-card" key={bot.id}>

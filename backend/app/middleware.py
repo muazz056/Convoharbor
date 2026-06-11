@@ -59,6 +59,7 @@ def setup_tenant_context():
         'api.generate_widget_script',
         'api.create_conversation',
         'api.get_conversation',
+        'api.get_conversation_messages_public',
         'api.send_message',
         'api.get_public_chatbot',
         'api.update_conversation_status',

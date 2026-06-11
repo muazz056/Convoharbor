@@ -31,9 +31,20 @@ class ConversationService:
             r'\b(thanks for (?:your )?help|thanks[, ]+this was helpful|thank you for (?:your )?help|appreciate (?:it|the help)|cheers)\b',
             # Strong closure phrases
             r'\b(that\'s all|that is all|nothing else|no more questions|i\'m done|im done|i\'m good|i\'m all set|all set|that\'s it|that solved it|got it,? thanks|perfect,? thanks)\b',
+            # "no/nah/thanks/thank you" as closing — covers "no thanks", "nah thanks", "no thank you" etc.
+            # Also handles "no thanks for the information/help/etc."
+            r'^(no|nah|nope|noo)[\s,]+(thanks|thank you|thank|ty|bye|goodbye|more|further|questions)[\s\S]*$',
+            # "no thanks for..." — explicit gratitude + closure
+            r'^(no|nah|nope|noo)[\s,]+thanks[\s,]+for[\s\S]*$',
+            # "okay/ok/cool/alright/sure" + optional "thanks/thank you/bye" as closing
+            r'^(okay|ok|cool|alright|sure|fine|gotcha|understood)[\s,]*(thanks|thank you|thank|ty|bye|goodbye)?[\s\S]*$',
+            # "thanks/thank you" + optional "bye/goodbye" as closing
+            r'^(thanks|thank you|thank|ty|cheers)[\s,]*(okay|ok|cool|alright|sure|bye|goodbye)?[\s\S]*$',
+            # Satisfaction signals that indicate conversation can end
+            r'\b(got it|perfect|great|awesome|helpful|nice|cool|sweet|alright|excellent|wonderful|fantastic|amazing|brilliant|superb|outstanding)\b',
+            # Appreciation phrases
+            r'\b(appreciate it|that helps|that\'s helpful|very helpful|exactly what i needed|exactly what i wanted|you\'ve been helpful|thanks a lot|thanks so much|many thanks|tysm|ty)\b',
             # "done" / "finish" / "stop" / "quit" / "close" only as a STANDALONE
-            # word (the whole message is essentially that word). This is the
-            # safe form that won't match "at the end" / "the ending".
             r'^(done|finish|finished|stop|quit|exit|close|closed|end|ended)\s*[.!?]?\s*$',
             # Multi-language farewells
             r'\b(adios|au revoir|auf wiedersehen|arrivederci|sayonara|alvida|khoda hafez)\b',
@@ -84,17 +95,139 @@ class ConversationService:
                 return True
         return False
 
+    def _has_follow_up_question(self, last_assistant_message: str) -> bool:
+        """Check if the last assistant message contains a follow-up question.
+
+        If the chatbot asked 'Do you want more information?' and the user
+        says 'okay', that's answering the question — NOT a farewell.
+        """
+        if not last_assistant_message:
+            return False
+        text = last_assistant_message.lower().strip()
+        follow_up_patterns = [
+            r'\bdo you want\b',
+            r'\bwould you like\b',
+            r'\bwant more\b',
+            r'\bmore information\b',
+            r'\bhelp you with\b',
+            r'\banything else\b',
+            r'\bcan i help\b',
+            r'\bshall i\b',
+            r'\bshould i\b',
+            r'\bdo you need\b',
+            r'\bis there anything\b',
+            r'\bwould that help\b',
+            r'\bneed more\b',
+            r'\bclarify\b',
+            r'\bexplain further\b',
+            r'\bmore details\b',
+            r'\?$',  # ends with question mark
+        ]
+        for p in follow_up_patterns:
+            if re.search(p, text, re.IGNORECASE):
+                return True
+        return False
+
+    def _is_last_message_informational(self, last_assistant_message: str) -> bool:
+        """Check if the assistant's last message was informational/concluding
+        (NOT a follow-up question). This helps determine if short user messages
+        like 'okay', 'great', 'cool' are farewells.
+
+        Informational = assistant gave an answer, explanation, or statement.
+        NOT informational = assistant asked a follow-up question.
+        """
+        if not last_assistant_message:
+            return False
+        text = last_assistant_message.lower().strip()
+
+        # If the last assistant message ends with a question mark, it's
+        # probably asking something — NOT informational
+        if text.endswith('?'):
+            return False
+
+        # Check for explicit follow-up question patterns
+        follow_up_patterns = [
+            r'\bdo you want\b',
+            r'\bwould you like\b',
+            r'\bwant more\b',
+            r'\bmore information\b',
+            r'\bhelp you with\b',
+            r'\banything else\b',
+            r'\bcan i help\b',
+            r'\bshall i\b',
+            r'\bshould i\b',
+            r'\bdo you need\b',
+            r'\bis there anything\b',
+            r'\bwould that help\b',
+            r'\bneed more\b',
+            r'\bclarify\b',
+            r'\bexplain further\b',
+            r'\bmore details\b',
+        ]
+        for p in follow_up_patterns:
+            if re.search(p, text, re.IGNORECASE):
+                return False
+
+        # If none of the above matched, the message is informational/concluding
+        return True
+
+    def is_smart_farewell(self, message: str, last_assistant_message: str = None) -> bool:
+        """Smart farewell detection with intelligent context analysis.
+
+        Logic:
+        - Chatbot: "Here's the answer..." → User: "okay" = farewell ✅
+        - Chatbot: "Here's the answer..." → User: "great" = farewell ✅
+        - Chatbot: "Do you want more info?" → User: "okay" = answering, NOT farewell ❌
+        - Chatbot: "Do you want more info?" → User: "okay thanks" = farewell ✅ (strong signal)
+        - Chatbot: "Do you want more info?" → User: "bye" = farewell ✅ (strong signal)
+        - No last message → User: "okay" = farewell ✅ (can't be answering anything)
+        """
+        if not self.is_farewell(message):
+            return False
+
+        msg = message.lower().strip()
+
+        # Strong farewell signals in the user message always mean farewell,
+        # regardless of what the assistant asked. These are explicit closings.
+        strong_farewell_patterns = [
+            r'\b(bye|goodbye|see you|farewell|take care|have a good day|have a nice day)\b',
+            r'\b(thanks|thank you|thank|ty|cheers)\b',
+            r'\b(done|finished|nothing else|no more questions|i\'m done|im done|i\'m all set|all set|that\'s it|that\'s all)\b',
+            r'\b(got it,?\s*thanks|perfect,?\s*thanks|great,?\s*thanks)\b',
+            r'^(no|nah|nope)[\s,]+(thanks|thank you|thank|ty|bye|goodbye|more|further|questions)?[\s\S]*$',
+            r'^(okay|ok|cool|alright|sure|fine|gotcha|understood)[\s,]*(thanks|thank you|thank|ty|bye|goodbye)?[\s\S]*$',
+            r'^(thanks|thank you|thank|ty|cheers)[\s,]*(okay|ok|cool|alright|sure|bye|goodbye)?[\s\S]*$',
+        ]
+        for p in strong_farewell_patterns:
+            if re.search(p, msg, re.IGNORECASE):
+                return True
+
+        # For weaker signals (just "okay", "alright", "great", "cool", etc.),
+        # use intelligent context analysis:
+        if not last_assistant_message:
+            # No prior message — short acknowledgment = farewell
+            return True
+
+        if self._has_follow_up_question(last_assistant_message):
+            # Assistant asked a follow-up question — user is probably answering
+            return False
+
+        if self._is_last_message_informational(last_assistant_message):
+            # Assistant gave an informational response — short acknowledgment = farewell
+            # e.g., assistant: "The answer is 42." → user: "okay" = farewell
+            return True
+
+        # Default: treat as farewell (the message matched a farewell pattern
+        # and the assistant didn't ask a follow-up question)
+        return True
+
     def get_greeting_response(self, chatbot_config: Dict) -> str:
         """Get appropriate greeting response"""
-        # Check if chatbot has custom greeting
         custom_greeting = chatbot_config.get('prompts', {}).get('greeting')
         if custom_greeting:
             return custom_greeting
-
-        # Use default greeting based on personality
         personality = chatbot_config.get('personality', {})
         role = personality.get('role', 'Assistant')
-
         if 'support' in role.lower():
             return f"Hello! I'm your {role}. How can I help you today?"
         elif 'sales' in role.lower():
@@ -104,73 +237,65 @@ class ConversationService:
 
     def get_farewell_response(self, chatbot_config: Dict) -> str:
         """Get appropriate farewell response"""
-        # Check if chatbot has custom farewell
         custom_farewell = chatbot_config.get('prompts', {}).get('farewell')
         if custom_farewell:
             return custom_farewell
-
-        # Use default farewell
         import random
         return random.choice(self.farewell_responses)
 
     def should_restrict_to_knowledge_base(self, message: str, chatbot_config: Dict) -> bool:
         """Determine if message should be restricted to knowledge base based on mode"""
-        # Get mode from chatbot config (default to 'strict' for backward compatibility)
         mode = chatbot_config.get('mode', 'strict')
-
-        # Check mode setting
         if mode == 'permissive':
-            # Permissive mode: Allow everything (greetings, farewells, general knowledge, KB content)
             return False
-        else:  # strict mode
-            # Strict mode: Only allow greetings and farewells, everything else must be from KB
+        else:
             if self.is_greeting(message) or self.is_farewell(message):
-                return False  # Allow greetings/farewells without KB restriction
+                return False
             else:
-                return True   # All other messages must be from knowledge base
+                return True
 
-    def detect_conversation_ending(self, message: str, conversation_id: int) -> bool:
-        """Detect if conversation should end and mark it accordingly"""
+    def detect_conversation_ending(self, message: str, conversation_id: int, last_assistant_message: str = None) -> bool:
+        """Detect if conversation should end and mark it accordingly."""
         try:
-            if self.is_farewell(message):
-                # Mark conversation as ended
+            if self.is_smart_farewell(message, last_assistant_message):
                 conversation = Conversation.query.get(conversation_id)
                 if conversation and not conversation.conversation_ended:
                     conversation.conversation_ended = True
                     conversation.ended_at = datetime.utcnow()
                     db.session.commit()
-
-                    current_app.logger.info(f"🔚 Conversation {conversation_id} marked as ended")
+                    current_app.logger.info(f"Conversation {conversation_id} marked as ended")
                     return True
-
             return False
-
         except Exception as e:
             current_app.logger.error(f"Error detecting conversation ending: {str(e)}")
             return False
 
     def add_satisfaction_rating(self, conversation_id: int, rating: int, feedback: str = None) -> bool:
-        """Add satisfaction rating to ended conversation"""
+        """Add satisfaction rating — always APPENDS a new ConversationFeedback record"""
         try:
             conversation = Conversation.query.get(conversation_id)
             if not conversation:
                 return False
-
-            # Validate rating
             if not isinstance(rating, int) or rating < 1 or rating > 5:
                 return False
-
+            # Keep conversation's latest rating (used for unique-conversation math)
             conversation.satisfaction_rating = rating
             conversation.satisfaction_feedback = feedback
+            # Also APPEND a new ConversationFeedback record (so every submission is preserved)
+            from ..models.conversation import ConversationFeedback
+            feedback_record = ConversationFeedback(
+                conversation_id=conversation_id,
+                rating=rating,
+                feedback_type='rating',
+                feedback_text=feedback,
+                user_id=conversation.user_id
+            )
+            db.session.add(feedback_record)
             db.session.commit()
-
-            current_app.logger.info(f"⭐ Added satisfaction rating {rating}/5 to conversation {conversation_id}")
-
-            # Send notification about rating
+            current_app.logger.info(f"Appended satisfaction rating {rating}/5 to conversation {conversation_id} (feedback #{feedback_record.id})")
             try:
                 from ..services.notification_service import NotificationService
                 notification_service = NotificationService()
-
                 notification_service.send_feedback_notification(
                     tenant_id=conversation.chatbot.tenant_id,
                     chatbot_id=conversation.chatbot_id,
@@ -180,48 +305,42 @@ class ConversationService:
                 )
             except Exception as e:
                 current_app.logger.error(f"Failed to send satisfaction rating notification: {str(e)}")
-
             return True
-
         except Exception as e:
             current_app.logger.error(f"Error adding satisfaction rating: {str(e)}")
             return False
 
     def get_conversation_stats(self, tenant_id: int) -> Dict:
-        """Get conversation statistics including satisfaction ratings"""
+        """Get conversation statistics including satisfaction ratings from ConversationFeedback"""
         try:
             from sqlalchemy import func
-
-            # Get total conversations
+            from ..models.conversation import ConversationFeedback
             total_conversations = Conversation.query.filter_by(tenant_id=tenant_id).count()
-
-            # Get ended conversations
             ended_conversations = Conversation.query.filter_by(
-                tenant_id=tenant_id,
-                conversation_ended=True
+                tenant_id=tenant_id, conversation_ended=True
             ).count()
-
-            # Get satisfaction ratings
+            # Query from ConversationFeedback (all submissions, unique conversations)
             ratings_query = db.session.query(
-                func.avg(Conversation.satisfaction_rating).label('avg_rating'),
-                func.count(Conversation.satisfaction_rating).label('rating_count')
-            ).filter(
+                func.avg(ConversationFeedback.rating).label('avg_rating'),
+                func.count(func.distinct(ConversationFeedback.conversation_id)).label('rating_count')
+            ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).filter(
                 Conversation.tenant_id == tenant_id,
-                Conversation.satisfaction_rating.isnot(None)
+                Conversation.status != 'deleted',
+                ConversationFeedback.feedback_type == 'rating'
             ).first()
-
             avg_rating = float(ratings_query.avg_rating) if ratings_query.avg_rating else 0.0
             rating_count = ratings_query.rating_count or 0
-
-            # Get rating distribution
             rating_distribution = {}
             for i in range(1, 6):
-                count = Conversation.query.filter_by(
-                    tenant_id=tenant_id,
-                    satisfaction_rating=i
-                ).count()
+                count = db.session.query(
+                    func.count(func.distinct(ConversationFeedback.conversation_id))
+                ).join(Conversation, ConversationFeedback.conversation_id == Conversation.id).filter(
+                    Conversation.tenant_id == tenant_id,
+                    Conversation.status != 'deleted',
+                    ConversationFeedback.feedback_type == 'rating',
+                    ConversationFeedback.rating == i
+                ).scalar() or 0
                 rating_distribution[str(i)] = count
-
             return {
                 'total_conversations': total_conversations,
                 'ended_conversations': ended_conversations,
@@ -230,14 +349,11 @@ class ConversationService:
                 'rating_distribution': rating_distribution,
                 'completion_rate': round((ended_conversations / total_conversations * 100), 2) if total_conversations > 0 else 0
             }
-
         except Exception as e:
             current_app.logger.error(f"Error getting conversation stats: {str(e)}")
             return {
-                'total_conversations': 0,
-                'ended_conversations': 0,
-                'rated_conversations': 0,
-                'average_satisfaction': 0.0,
+                'total_conversations': 0, 'ended_conversations': 0,
+                'rated_conversations': 0, 'average_satisfaction': 0.0,
                 'rating_distribution': {'1': 0, '2': 0, '3': 0, '4': 0, '5': 0},
                 'completion_rate': 0.0
             }
@@ -248,11 +364,7 @@ class ConversationService:
             conversation = Conversation.query.get(conversation_id)
             if not conversation:
                 return False
-
-            # Show rating if conversation just ended and hasn't been rated yet
-            return (conversation.conversation_ended
-                    and conversation.satisfaction_rating is None)
-
+            return (conversation.conversation_ended and conversation.satisfaction_rating is None)
         except Exception as e:
             current_app.logger.error(f"Error checking rating prompt: {str(e)}")
             return False
