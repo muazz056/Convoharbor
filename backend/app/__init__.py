@@ -1,10 +1,6 @@
 # # chat_project/app/__init__.py
 
 import os
-import eventlet
-
-# Monkey patch for WebSocket support
-eventlet.monkey_patch()
 
 import logging
 from logging.handlers import RotatingFileHandler
@@ -184,7 +180,7 @@ def create_app(config_name='default'):
             from .services.vector_service import VectorService
             from .services.llm_service import LLMService
             from .services.prompt_service import PromptService
-            from .services.embedding_service import generate_embeddings_for_texts
+            from .services.embedding_service import generate_embeddings_for_texts, preload_local_embedding_model
             from .services.websocket_service import websocket_service
             from .services.intent_analysis_service import IntentAnalysisService
 
@@ -207,6 +203,8 @@ def create_app(config_name='default'):
                     )
 
             app.embedding_service = EmbeddingServiceWrapper()
+
+            preload_local_embedding_model(app)
 
             websocket_service.socketio.init_app(app)
             app.websocket_service = websocket_service

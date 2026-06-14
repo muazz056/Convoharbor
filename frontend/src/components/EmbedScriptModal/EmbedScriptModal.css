@@ -102,6 +102,29 @@
   font-size: 0.95rem;
 }
 
+.embed-ai-prompt {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-left: 4px solid #22c55e;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin: 8px 0 12px 0;
+  font-size: 0.88rem;
+  color: #166534;
+  line-height: 1.5;
+}
+.embed-ai-prompt strong {
+  display: block;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #15803d;
+  margin-bottom: 2px;
+}
+.embed-ai-prompt p {
+  margin: 0;
+}
+
 .embed-modal-footer {
   padding: 1.5rem 2rem;
   border-top: 1px solid #e2e8f0;

@@ -1143,7 +1143,10 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
     }
 
     return (
-        <div className={`chat-widget-container ${themeConfig.position} ${testMode ? 'test-mode-widget' : ''}`}>
+        <div
+            className={`chat-widget-container ${themeConfig.position} ${testMode ? 'test-mode-widget' : ''}`}
+            style={{ '--cw-user-bg': themeConfig.primaryColor }}
+        >
             {!isOpen && (
                 <button
                     className="chat-toggle-button"

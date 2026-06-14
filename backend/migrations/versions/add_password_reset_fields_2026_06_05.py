@@ -7,6 +7,11 @@ Create Date: 2026-06-05
 from alembic import op
 import sqlalchemy as sa
 
+revision = 'add_password_reset_fields_2026_06_05'
+down_revision = 'add_ai_models_table'
+branch_labels = None
+depends_on = None
+
 
 def upgrade():
     op.add_column('users', sa.Column('reset_token', sa.String(length=100), nullable=True, unique=True))

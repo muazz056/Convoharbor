@@ -33,6 +33,7 @@ class DocumentEmbedding(db.Model):
     provider = db.Column(db.String(20), nullable=False, default='openai')
     embedding_openai = _vector_col(VECTOR_DIMENSION)
     embedding_gemini = _vector_col(VECTOR_DIMENSION)
+    embedding_local = _vector_col(384)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     def __repr__(self):

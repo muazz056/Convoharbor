@@ -15,6 +15,12 @@ html.public-chat-mode {
   overflow: hidden;
 }
 
+/* #root is the React mount point — index.css forces #ffffff !important on it,
+   so we must override it here when in public-chat-mode */
+body.public-chat-mode #root {
+  background: transparent !important;
+}
+
 /* Hide any default React app styling that might show */
 .public-chat-container * {
   box-sizing: border-box;

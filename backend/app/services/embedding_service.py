@@ -1,10 +1,51 @@
 import re
+import threading
 import time
 
 from flask import current_app
 from langchain_openai import OpenAIEmbeddings
 
 from .rate_limiter import get_gemini_rate_limiter
+
+_local_embedding_model = None
+_local_model_lock = threading.Lock()
+
+
+def _get_local_model():
+    global _local_embedding_model
+    if _local_embedding_model is None:
+        with _local_model_lock:
+            if _local_embedding_model is None:
+                from sentence_transformers import SentenceTransformer
+                model_name = current_app.config.get(
+                    'LOCAL_EMBEDDING_MODEL', 'thenlper/gte-small'
+                )
+                current_app.logger.info(f"Loading local embedding model: {model_name}")
+                _local_embedding_model = SentenceTransformer(model_name)
+                current_app.logger.info(
+                    f"Local embedding model loaded on {_local_embedding_model.device}"
+                )
+    return _local_embedding_model
+
+
+def _local_embed(texts: list[str]) -> list[list[float]]:
+    model = _get_local_model()
+    embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+    return embeddings.tolist()
+
+
+def preload_local_embedding_model(app):
+    """Pre-load the local embedding model in a background thread at app startup."""
+    def _load():
+        with app.app_context():
+            try:
+                _get_local_model()
+                app.logger.info("Local embedding model pre-loaded at startup")
+            except Exception as e:
+                app.logger.warning(f"Local embedding model pre-load skipped: {e}")
+
+    thread = threading.Thread(target=_load, daemon=True)
+    thread.start()
 
 
 def _parse_retry_delay_seconds(error) -> float:
@@ -225,6 +266,28 @@ def generate_embeddings_for_texts(texts: list[str], on_batch_start=None,
         ``provider`` (str) and ``error`` (str, only if failed).
     """
     provider = current_app.config.get('EMBEDDINGS_SERVICE_USE', 'openai')
+
+    if provider == 'local':
+        try:
+            embeddings = _local_embed(texts)
+            current_app.logger.info(
+                f"Local embeddings generated: {len(embeddings)} vectors "
+                f"(model={current_app.config.get('LOCAL_EMBEDDING_MODEL', 'thenlper/gte-small')})"
+            )
+            if on_batch_done is not None:
+                try:
+                    on_batch_done(
+                        batch_index=0,
+                        total_batches=1,
+                        batch_size=len(texts),
+                        embeddings_so_far=len(embeddings),
+                    )
+                except Exception:
+                    pass
+            return {"embeddings": embeddings, "provider": "local"}
+        except Exception as e:
+            current_app.logger.error(f"Local embeddings failed: {str(e)}")
+            return {"embeddings": None, "provider": "local", "error": str(e)}
 
     if provider == 'gemini':
         api_key = current_app.config.get('GEMINI_API_KEY', '')

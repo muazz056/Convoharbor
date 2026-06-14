@@ -16,19 +16,28 @@ const PublicChat = () => {
     return null;
   });
 
-  // Make body transparent for embed
+  // Make body and root transparent for embed
   useEffect(() => {
     document.body.classList.add('public-chat-mode');
     document.documentElement.classList.add('public-chat-mode');
     document.body.style.background = 'transparent';
     document.documentElement.style.background = 'transparent';
-    
+
+    // #root has background: #ffffff !important from index.css.
+    // Inline style with !important via setProperty overrides CSS !important rules.
+    const rootEl = document.getElementById('root');
+    if (rootEl) {
+      rootEl.style.setProperty('background', 'transparent', 'important');
+    }
+
     return () => {
-      // Cleanup on unmount
       document.body.classList.remove('public-chat-mode');
       document.documentElement.classList.remove('public-chat-mode');
       document.body.style.background = '';
       document.documentElement.style.background = '';
+      if (rootEl) {
+        rootEl.style.removeProperty('background');
+      }
     };
   }, []);
 

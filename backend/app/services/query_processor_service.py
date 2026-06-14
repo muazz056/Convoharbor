@@ -262,23 +262,10 @@ def ultra_efficient_final_generation(
     """
     start_time = time.time()
 
-    # Determine if we need translation
-    needs_translation = target_lang != "en"
-
-    # Get user role for personalization (legacy fields - kept for parity)
     _expertise = user_attributes.get('expertise', 'default')  # noqa: F841
     _permission = user_attributes.get('permission', 'user')  # noqa: F841
     _intent = user_attributes.get('intent', 'question')  # noqa: F841
 
-    # All final-answer generation now uses a single RAG-aware template.
-    # The "ultra-fast" English-only branch is removed: prompts.yml renders
-    # cleanly for both English and non-English targets, and the consistency
-    # outweighs the small per-call cost of the richer template.
-    needs_translation_block = (
-        f"CRITICAL: Respond entirely in {target_lang} native script - "
-        f"do not use English letters for non-English languages."
-        if needs_translation else ""
-    )
     refusal_message = (
         "I'm sorry, but I can't find an answer to your question right now."
         if mode == 'strict' else
@@ -288,8 +275,6 @@ def ultra_efficient_final_generation(
         'answer_ultra',
         chatbot_name=user_attributes.get('chatbot_name', 'this chatbot'),
         chatbot_role=user_attributes.get('role', 'AI Assistant'),
-        target_lang=target_lang,
-        needs_translation_block=needs_translation_block,
         context=context,
         history=user_attributes.get('history', '(no prior messages)'),
         query=query,

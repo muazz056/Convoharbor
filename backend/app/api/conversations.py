@@ -1010,7 +1010,7 @@ def send_message_json(conversation_id):
             prompt_svc = PromptService()
 
             _mode = config.get('mode', 'strict')  # noqa: F841
-            target_lang = config.get('target_language', 'English')
+            target_lang = 'auto'
             chatbot_name = config.get('name', 'this chatbot')
             chatbot_role = personality.get('role', 'AI Assistant')
 
@@ -1024,7 +1024,6 @@ def send_message_json(conversation_id):
                         context=context_text,
                     )
                 else:
-                    # No context in strict mode -> refusal
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.out_of_scope',
                         chatbot_name=chatbot_name,
@@ -1034,7 +1033,6 @@ def send_message_json(conversation_id):
                         refusal_message="I'm sorry, but I can't find an answer to your question right now.",
                     )
             else:
-                # Permissive mode — context-first, fallback allowed
                 full_system_message = system_message + "\n\n" + prompt_svc.render(
                     'rag_system.permissive',
                     chatbot_name=chatbot_name,
@@ -1043,14 +1041,10 @@ def send_message_json(conversation_id):
                     context=context_text or '',
                 )
 
-            # Generate AI response
-            # Load conversation history from DB so the LLM has full context
-            # for follow-up questions. Take the last 20 messages to stay
-            # within token limits while giving enough context.
             history_messages = Message.query.filter_by(
                 conversation_id=conversation_id
             ).order_by(Message.created_at.desc()).limit(20).all()
-            history_messages.reverse()  # chronological order
+            history_messages.reverse()
 
             messages = [
                 {"role": "system", "content": full_system_message},
@@ -1422,7 +1416,7 @@ def send_message_stream(conversation_id):
             prompt_svc = PromptService()
 
             _mode = config.get('mode', 'strict')  # noqa: F841
-            target_lang = config.get('target_language', 'English')
+            target_lang = 'auto'
             chatbot_name = config.get('name', 'this chatbot')
             chatbot_role = personality.get('role', 'AI Assistant')
 

@@ -51,8 +51,10 @@ class VectorService:
                 existing.provider = provider
                 if provider == 'openai':
                     existing.embedding_openai = embedding
-                else:
+                elif provider == 'gemini':
                     existing.embedding_gemini = embedding
+                else:
+                    existing.embedding_local = embedding
                 update_records.append(existing)
             else:
                 new_records.append({
@@ -66,7 +68,8 @@ class VectorService:
                     'tenant_id': metadata.get("tenant_id"),
                     'provider': provider,
                     'embedding_openai': embedding if provider == 'openai' else None,
-                    'embedding_gemini': embedding if provider != 'openai' else None,
+                    'embedding_gemini': embedding if provider == 'gemini' else None,
+                    'embedding_local': embedding if provider == 'local' else None,
                 })
 
         # Bulk insert all new records in ONE query
@@ -100,8 +103,10 @@ class VectorService:
 
         if provider == 'openai':
             embed_col = DocumentEmbedding.embedding_openai
-        else:
+        elif provider == 'gemini':
             embed_col = DocumentEmbedding.embedding_gemini
+        else:
+            embed_col = DocumentEmbedding.embedding_local
 
         base_query = db.session.query(
             DocumentEmbedding,
@@ -247,27 +252,30 @@ class VectorService:
 
             results = self.query(query_embedding, top_k=limit, filter_dict=filter_dict)
 
-            # If 0 results with the active provider, try the OTHER provider
+            # If 0 results with the active provider, try the OTHER providers
             # as a courtesy fallback. This keeps older KBs (stored under
-            # 'openai') retrievable even if the active provider switched to
-            # 'gemini' (or vice versa).
+            # 'openai') retrievable even if the active provider switched.
             if not results and chatbot_id is not None:
-                fallback_provider = 'openai' if embed_provider != 'openai' else 'gemini'
-                current_app.logger.warning(
-                    f"[VECTOR_SEARCH] 0 results with provider={embed_provider} - "
-                    f"trying fallback provider={fallback_provider}"
-                )
-                fallback_filter = {"provider": fallback_provider, "chatbot_id": chatbot_id}
-                fallback_results = self.query(query_embedding, top_k=limit, filter_dict=fallback_filter)
-                if fallback_results:
-                    results = fallback_results
-                    current_app.logger.info(
-                        f"[VECTOR_SEARCH] fallback provider={fallback_provider} returned {len(results)} results"
+                all_providers = ['openai', 'gemini', 'local']
+                fallback_providers = [p for p in all_providers if p != embed_provider]
+                for fallback_provider in fallback_providers:
+                    current_app.logger.warning(
+                        f"[VECTOR_SEARCH] 0 results with provider={embed_provider} - "
+                        f"trying fallback provider={fallback_provider}"
                     )
+                    fallback_filter = {"provider": fallback_provider, "chatbot_id": chatbot_id}
+                    fallback_results = self.query(query_embedding, top_k=limit, filter_dict=fallback_filter)
+                    if fallback_results:
+                        results = fallback_results
+                        current_app.logger.info(
+                            f"[VECTOR_SEARCH] fallback provider={fallback_provider} returned {len(results)} results"
+                        )
+                        break
                 else:
                     current_app.logger.warning(
-                        f"[VECTOR_SEARCH] FALLBACK ALSO FAILED - 0 results with {fallback_provider} too. "
-                        f"DB has chunks for chatbot_id={chatbot_id} but neither provider's "
+                        f"[VECTOR_SEARCH] ALL FALLBACKS FAILED - 0 results with "
+                        f"{[p for p in all_providers if p != embed_provider]} too. "
+                        f"DB has chunks for chatbot_id={chatbot_id} but no provider's "
                         f"embedding column has a matching vector. Re-upload the document or run repair."
                     )
 
@@ -342,8 +350,10 @@ class VectorService:
                     existing.source = source
                     if provider == 'openai':
                         existing.embedding_openai = embedding
-                    else:
+                    elif provider == 'gemini':
                         existing.embedding_gemini = embedding
+                    else:
+                        existing.embedding_local = embedding
                 else:
                     new_records.append({
                         'vector_id': vector_id,
@@ -356,7 +366,8 @@ class VectorService:
                         'tenant_id': tenant_id,
                         'provider': provider,
                         'embedding_openai': embedding if provider == 'openai' else None,
-                        'embedding_gemini': embedding if provider != 'openai' else None,
+                        'embedding_gemini': embedding if provider == 'gemini' else None,
+                        'embedding_local': embedding if provider == 'local' else None,
                     })
 
             if new_records:
@@ -422,6 +433,7 @@ class VectorService:
             for row in records:
                 embedding_openai = row.embedding_openai
                 embedding_gemini = row.embedding_gemini
+                embedding_local = row.embedding_local
 
                 chunk = {
                     'page_content': row.page_content,
@@ -440,6 +452,8 @@ class VectorService:
                     chunk['embeddings']['openai'] = embedding_openai
                 if embedding_gemini is not None:
                     chunk['embeddings']['gemini'] = embedding_gemini
+                if embedding_local is not None:
+                    chunk['embeddings']['local'] = embedding_local
                 chunks.append(chunk)
 
             return chunks

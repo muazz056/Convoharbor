@@ -1,9 +1,17 @@
 import os
+import sys
 from dotenv import load_dotenv
 
 # Load environment variables BEFORE any app imports to ensure Config class
 # attributes are evaluated with .env vars already loaded
 load_dotenv()
+
+# Monkey-patch ONLY when running as a server, not during CLI commands
+# (flask db, flask shell, etc.). The monkey_patch() upgrades werkzeug
+# locals which don't exist outside request/application context.
+if not any(arg in sys.argv for arg in ['db', 'shell', 'routes', 'test', 'cli']):
+    import eventlet
+    eventlet.monkey_patch()
 
 from app import create_app, db
 from flask_migrate import Migrate

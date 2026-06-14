@@ -1910,6 +1910,12 @@ URL: {url}
             r'\.(pdf|doc|docx|xls|xlsx|ppt|pptx|zip|rar|tar|gz)$',
             r'\.(jpg|jpeg|png|gif|bmp|svg|ico|webp)$',
             r'\.(css|js|json|xml|txt)$',
+            r'\.(woff2?|ttf|otf|eot)$',           # Font files
+            r'\.(wasm)$',                           # WebAssembly
+            r'\.(map)$',                            # Source maps
+            r'\.(mp[34]|avi|mov|mkv|webm|ogg)$',   # Media files
+            r'/_next/static/',                      # Next.js static assets (fonts, chunks, images)
+            r'/wp-content/uploads/',                # WP uploads (usually images/docs)
             r'/(wp-admin|admin|login|register|logout|cart|checkout)',
             r'/(api|ajax|webhook)',
             r'[?&](utm_|ref=|src=)',  # Tracking parameters
@@ -1936,8 +1942,13 @@ URL: {url}
             r'sitemap',  # Any sitemap-related URLs
             r'robots\.txt$',  # Robots.txt
             r'\.json$',  # JSON files
+            r'\.(woff2?|ttf|otf|eot)$',  # Font files
+            r'\.wasm$',  # WebAssembly
+            r'\.map$',   # Source maps
+            r'\.(mp[34]|avi|mov|mkv|webm|ogg)$',  # Media files
             r'/feed/',   # Feed URLs
             r'/rss/',    # RSS URLs
+            r'/_next/static/',  # Next.js static assets
         ]
 
         url_lower = url.lower()
@@ -2678,6 +2689,12 @@ URL: {url}
             import os
             from langchain_core.messages import HumanMessage
 
+            # Escape $ in content to prevent string.Template from treating
+            # ${...} or $var patterns in the scraped content as placeholders.
+            # Use a sentinel that is extremely unlikely in real content.
+            _DOLLAR_SENTINEL = '\x00DOLLAR_SENTINEL\x00'
+            safe_content = content[:100000].replace('$', _DOLLAR_SENTINEL)
+
             prompt = _prompt_svc().render(
                 'web_structuring',
                 domain_name=domain_name,
@@ -2685,11 +2702,12 @@ URL: {url}
                 chunk_label=(
                     f"Chunk: {chunk_num}/{total_chunks}" if total_chunks > 1 else ""
                 ),
-                content=content[:100000],
+                content=safe_content,
                 truncated_marker=(
                     "\n...[Content truncated]" if len(content) > 100000 else ""
                 ),
             )
+            prompt = prompt.replace(_DOLLAR_SENTINEL, '$')
 
             # Provider API type map (mirrors llm_service.py)
             PROVIDER_API_TYPE_MAP = {

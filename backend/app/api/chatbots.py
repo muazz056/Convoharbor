@@ -1271,7 +1271,33 @@ def delete_chatbot(chatbot_id):
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete messages (table may not exist): {msg_error}")
 
-        # 2) Delete conversations
+        # 2) Delete notifications referencing these conversations
+        try:
+            current_app.logger.info(f"🔍 Attempting to delete notifications for chatbot {chatbot_id}")
+            result = db.session.execute(
+                db.text("DELETE FROM notifications WHERE conversation_id IN (SELECT id FROM conversations WHERE chatbot_id = :chatbot_id)"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+            current_app.logger.info(f"🗑️ Deleted {result.rowcount} notifications for chatbot {chatbot_id}")
+        except Exception as notif_error:
+            db.session.rollback()
+            current_app.logger.warning(f"⚠️ Could not delete notifications: {notif_error}")
+
+        # 3) Delete conversation_feedback referencing these conversations
+        try:
+            current_app.logger.info(f"🔍 Attempting to delete conversation_feedback for chatbot {chatbot_id}")
+            result = db.session.execute(
+                db.text("DELETE FROM conversation_feedback WHERE conversation_id IN (SELECT id FROM conversations WHERE chatbot_id = :chatbot_id)"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+            current_app.logger.info(f"🗑️ Deleted {result.rowcount} conversation_feedback for chatbot {chatbot_id}")
+        except Exception as fb_error:
+            db.session.rollback()
+            current_app.logger.warning(f"⚠️ Could not delete conversation_feedback: {fb_error}")
+
+        # 5) Delete conversations
         try:
             current_app.logger.info(f"🔍 Attempting to delete conversations for chatbot {chatbot_id}")
             result = db.session.execute(
@@ -1284,7 +1310,7 @@ def delete_chatbot(chatbot_id):
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete conversations (table may not exist): {conv_error}")
 
-        # Try to delete associated data sources
+        # 6) Try to delete associated data sources
         try:
             current_app.logger.info(f"🔍 Attempting to delete data sources for chatbot {chatbot_id}")
             deleted_count = DataSource.query.filter_by(chatbot_id=chatbot.id).count()
@@ -1295,7 +1321,7 @@ def delete_chatbot(chatbot_id):
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete data sources: {ds_error}")
 
-        # Delete document embeddings (vector store entries) for this chatbot
+        # 7) Delete document embeddings (vector store entries) for this chatbot
         try:
             current_app.logger.info(f"🔍 Attempting to delete document embeddings for chatbot {chatbot_id}")
             result = db.session.execute(
@@ -1308,7 +1334,7 @@ def delete_chatbot(chatbot_id):
             db.session.rollback()
             current_app.logger.warning(f"⚠️ Could not delete document embeddings (table may not exist): {emb_error}")
 
-        # Delete the chatbot using raw SQL to avoid relationship issues
+        # 8) Delete the chatbot using raw SQL to avoid relationship issues
         try:
             current_app.logger.info(f"🔍 Attempting to delete chatbot {chatbot_id} directly")
             result = db.session.execute(
@@ -1407,19 +1433,53 @@ def delete_chatbot_admin(chatbot_id):
 
         current_app.logger.info(f"🗑️ Super admin deleting chatbot: {chatbot_name} (ID: {chatbot_id}) from tenant {chatbot_tenant_id}")
 
-        # Try to delete associated conversations first
+        # 1) Delete messages first
         try:
-            current_app.logger.info(f"🔍 Attempting to delete conversations for chatbot {chatbot_id}")
-            from ..models import Conversation
-            deleted_count = Conversation.query.filter_by(chatbot_id=chatbot.id).count()
-            Conversation.query.filter_by(chatbot_id=chatbot.id).delete()
+            current_app.logger.info(f"🔍 [Admin] Attempting to delete messages for chatbot {chatbot_id}")
+            db.session.execute(
+                db.text("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE chatbot_id = :chatbot_id)"),
+                {"chatbot_id": chatbot.id}
+            )
             db.session.commit()
-            current_app.logger.info(f"🗑️ Deleted {deleted_count} conversations for chatbot {chatbot_id}")
+        except Exception:
+            db.session.rollback()
+
+        # 2) Delete notifications referencing these conversations
+        try:
+            current_app.logger.info(f"🔍 [Admin] Attempting to delete notifications for chatbot {chatbot_id}")
+            db.session.execute(
+                db.text("DELETE FROM notifications WHERE conversation_id IN (SELECT id FROM conversations WHERE chatbot_id = :chatbot_id)"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        # 3) Delete conversation_feedback referencing these conversations
+        try:
+            current_app.logger.info(f"🔍 [Admin] Attempting to delete conversation_feedback for chatbot {chatbot_id}")
+            db.session.execute(
+                db.text("DELETE FROM conversation_feedback WHERE conversation_id IN (SELECT id FROM conversations WHERE chatbot_id = :chatbot_id)"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+        # 4) Delete conversations
+        try:
+            current_app.logger.info(f"🔍 [Admin] Attempting to delete conversations for chatbot {chatbot_id}")
+            db.session.execute(
+                db.text("DELETE FROM conversations WHERE chatbot_id = :chatbot_id"),
+                {"chatbot_id": chatbot.id}
+            )
+            db.session.commit()
+            current_app.logger.info(f"🗑️ [Admin] Deleted conversations for chatbot {chatbot_id}")
         except Exception as conv_error:
             db.session.rollback()
-            current_app.logger.warning(f"⚠️ Could not delete conversations (table may not exist): {conv_error}")
+            current_app.logger.warning(f"⚠️ [Admin] Could not delete conversations: {conv_error}")
 
-        # Try to delete associated data sources
+        # 4) Try to delete associated data sources
         try:
             current_app.logger.info(f"🔍 Attempting to delete data sources for chatbot {chatbot_id}")
             deleted_count = DataSource.query.filter_by(chatbot_id=chatbot.id).count()
@@ -1770,7 +1830,7 @@ def send_test_message(chatbot_id):
         from ..services.prompt_service import PromptService
         prompt_svc = PromptService()
 
-        target_lang = config.get('target_language', 'English')
+        target_lang = 'auto'
         chatbot_name = config.get('name', 'this chatbot')
         chatbot_role = personality.get('role', 'AI Assistant')
 
