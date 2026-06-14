@@ -1,7 +1,6 @@
 """
 Intent Analysis Service for detecting conversation ending patterns.
-The model is resolved at call time from the Super Admin's AiModel table
-(no hardcoded response-model names).
+Uses the chatbot's own AI model (not hardcoded) for multi-language support.
 """
 from flask import current_app
 from typing import List, Dict
@@ -18,35 +17,40 @@ class IntentAnalysisService:
 
     def __init__(self):
         """Initialize the intent analysis service."""
-        self.model = None  # Resolved lazily from AiModel table
+        self.model = None
 
-    def _resolve_model(self) -> str | None:
-        """Return the first active model from the AiModel table."""
+    def _resolve_model(self, config: Dict = None) -> str | None:
+        """Return the model from chatbot config, or fall back to AiModel table."""
         try:
+            if config:
+                from .model_resolver import resolve_model
+                model_name, _ = resolve_model(config)
+                return model_name
             from .model_resolver import get_default_llm_model
             model_name, _ = get_default_llm_model()
             return model_name
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
-    def analyze_conversation_intent(self, messages: List[Dict], user_message: str) -> Dict:
+    def analyze_conversation_intent(self, messages: List[Dict], user_message: str, config: Dict = None) -> Dict:
         """
         Analyze the last few messages to determine if user wants to end the conversation.
 
         Args:
             messages: List of recent conversation messages
             user_message: The latest user message
+            config: Optional chatbot config dict (uses chatbot's own model if provided)
 
         Returns:
             Dict with intent analysis results
         """
         try:
-            if not current_app.llm_service or not current_app.llm_service.openai_client:
-                current_app.logger.warning("⚠️ Intent analysis skipped - OpenAI client not available")
-                return {'should_show_rating': False, 'confidence': 0.0, 'reason': 'OpenAI not available'}
+            if not current_app.llm_service:
+                current_app.logger.warning("⚠️ Intent analysis skipped - LLM service not available")
+                return {'should_show_rating': False, 'confidence': 0.0, 'reason': 'LLM service not available'}
 
-            # Resolve the model from the Super Admin's AiModel table
-            model_name = self._resolve_model()
+            # Resolve model from chatbot config first, fall back to global default
+            model_name = self._resolve_model(config)
             if not model_name:
                 current_app.logger.warning("⚠️ Intent analysis skipped - no active AI model configured")
                 return {'should_show_rating': False, 'confidence': 0.0, 'reason': 'No active AI model'}
@@ -128,19 +132,22 @@ class IntentAnalysisService:
 
             result = json.loads(json_content)
 
-            # Validate required fields
+            # Extract fields from LLM response
             should_show_rating = result.get('should_show_rating', False)
+            should_ask_confirmation = result.get('should_ask_confirmation', False)
             confidence = float(result.get('confidence', 0.0))
             reason = result.get('reason', 'No reason provided')
             detected_patterns = result.get('detected_patterns', [])
 
-            # Apply confidence threshold
+            # Apply confidence threshold (only affects show_rating, not confirmation)
             if confidence < 0.7:
-                should_show_rating = False
-                reason += f" (Confidence {confidence} below threshold 0.7)"
+                if should_show_rating:
+                    should_show_rating = False
+                    reason += f" (show_rating confidence {confidence} below threshold 0.7)"
 
             return {
                 'should_show_rating': should_show_rating,
+                'should_ask_confirmation': should_ask_confirmation,
                 'confidence': confidence,
                 'reason': reason,
                 'detected_patterns': detected_patterns

@@ -1129,17 +1129,9 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         }
     };
 
-    // Show loading state if theme is not loaded yet
+    // Show nothing while loading the widget
     if (!themeConfig) {
-        return (
-            <div className="chat-widget-container bottom-right" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100vw', height: '100vh', pointerEvents: 'none', zIndex: 2147483647 }}>
-                {/* <div style={{ pointerEvents: 'none' }}>
-                    <button className="chat-toggle-button" tabIndex="-1" aria-label="Loading chat widget" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', pointerEvents: 'none', boxShadow: '0 8px 32px rgba(102, 126, 234, 0.25)' }} disabled>
-                        💬
-                    </button>
-                </div> */}
-            </div>
-        );
+        return null;
     }
 
     return (
@@ -1151,16 +1143,21 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                 <button
                     className="chat-toggle-button"
                     onClick={() => setIsOpen(true)}
-                    style={{ background: themeConfig.primaryColor }}
                 >
+                    <svg viewBox="0 0 24 24" fill="none" stroke={themeConfig.primaryColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                    </svg>
                 </button>
             )}
 
             {isOpen && (
                 <div className="chat-window">
                     <div className="chat-header" style={{ background: themeConfig.primaryColor }}>
-                        <span>
-                            🤖 {chatbotInfo?.name || 'Assistant'}
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            {chatbotInfo?.name || 'Assistant'}
                             {testMode && <span className="test-mode-badge">🧪 Test</span>}
                         </span>
                         <div className="header-actions">

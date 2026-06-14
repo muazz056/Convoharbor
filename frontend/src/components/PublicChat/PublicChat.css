@@ -12,7 +12,7 @@ html.public-chat-mode {
   background: transparent !important;
   margin: 0;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* #root is the React mount point — index.css forces #ffffff !important on it,
@@ -29,4 +29,11 @@ body.public-chat-mode #root {
 /* Ensure no scrollbars in iframe */
 .public-chat-container {
   overflow: hidden;
+}
+
+/* No visible borders/outlines inside the iframe */
+.public-chat-container,
+.public-chat-container * {
+  outline: none !important;
+  border: none !important;
 }

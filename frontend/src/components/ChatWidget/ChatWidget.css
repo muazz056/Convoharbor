@@ -45,32 +45,25 @@
    TOGGLE BUTTON
    ============================================ */
 .chat-toggle-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
+  background: transparent;
   border: none;
-  border-radius: 50%;
-  width: 64px;
-  height: 64px;
-  font-size: 24px;
   cursor: pointer;
-  box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  overflow: hidden;
   z-index: 2147483647;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.chat-toggle-button::before {
-  content: '💬';
-  font-size: 28px;
+.chat-toggle-button svg {
+  display: block;
+  width: 48px;
+  height: 48px;
 }
 
 .chat-toggle-button:hover {
   transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.6);
 }
 
 .chat-toggle-button:active {
@@ -584,13 +577,9 @@
     border-radius: 16px;
   }
 
-  .chat-toggle-button {
-    width: 58px;
-    height: 58px;
-  }
-
-  .chat-toggle-button::before {
-    font-size: 24px;
+  .chat-toggle-button svg {
+    width: 44px;
+    height: 44px;
   }
 
   .chat-input input {
@@ -615,13 +604,9 @@
     border-radius: 12px;
   }
 
-  .chat-toggle-button {
-    width: 54px;
-    height: 54px;
-  }
-
-  .chat-toggle-button::before {
-    font-size: 22px;
+  .chat-toggle-button svg {
+    width: 40px;
+    height: 40px;
   }
 
   .chat-header {
@@ -720,10 +705,6 @@
     border-radius: 8px;
   }
 
-  .chat-toggle-button {
-    width: 50px;
-    height: 50px;
-  }
 }
 
 /* ============================================

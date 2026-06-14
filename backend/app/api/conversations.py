@@ -803,30 +803,8 @@ def send_message_json(conversation_id):
             if is_farewell:
                 conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
 
-            # === EARLY EXIT: farewell gets rating INSTANTLY, skip RAG/LLM ===
-            if is_farewell:
-                config = chatbot.config or {}
-                content_lower = content.lower()
-                if 'thank' in content_lower:
-                    rating_message = "You're welcome! How would you rate our conversation?"
-                elif any(word in content_lower for word in ['bye', 'goodbye']):
-                    rating_message = "Thanks for chatting! How was your experience?"
-                elif any(word in content_lower for word in ['done', 'finish']):
-                    rating_message = "Great! Before you go, how would you rate our chat?"
-                else:
-                    rating_message = "How would you rate your experience with me today?"
-
-                farewell_response = conversation_service.get_farewell_response(config)
-                return jsonify({
-                    'success': True,
-                    'response': farewell_response,
-                    'message': 'Message processed successfully',
-                    'show_rating': True,
-                    'rating_message': rating_message,
-                    'conversation_id': conversation_id
-                })
-
-            # === REST OF RAG/LLM ONLY FOR NON-FAREWELL MESSAGES ===
+            # === PROCEED TO RAG/LLM FOR ALL MESSAGES ===
+            # (farewell detection is now handled by AI after response)
             # Get context from processed chunks stored in database/vector store
             context_text = ""
 
@@ -1152,14 +1130,15 @@ This chatbot is configured to use the {ai_model} model."""
             db.session.add(assistant_message)
             db.session.commit()
 
-            # Analyze user intent for conversation ending using GPT-4o with confirmation flow
-            # OPTIMIZATION: Only run intent analysis if farewell detected to avoid slowness
+            # Analyze user intent for conversation ending using AI with confirmation flow
             show_rating = False
             rating_message = 'How would you rate your experience?'
             ask_confirmation = False
+            intent_analysis_attempted = False
 
             try:
-                if is_farewell and hasattr(current_app, 'intent_analysis_service') and current_app.intent_analysis_service:
+                if hasattr(current_app, 'intent_analysis_service') and current_app.intent_analysis_service:
+                    intent_analysis_attempted = True
                     # Get recent messages for context (last 6 messages for better pattern detection)
                     recent_messages = Message.query.filter_by(conversation_id=conversation_id)\
                         .order_by(Message.created_at.desc())\
@@ -1174,8 +1153,10 @@ This chatbot is configured to use the {ai_model} model."""
                             'content': msg.content
                         })
 
-                    # Analyze intent with correct signature: (messages, user_message)
-                    intent_result = current_app.intent_analysis_service.analyze_conversation_intent(messages_list, content)
+                    # Analyze intent with chatbot's own model
+                    intent_result = current_app.intent_analysis_service.analyze_conversation_intent(
+                        messages_list, content, config=config
+                    )
 
                     # Check for direct rating trigger
                     if intent_result.get('should_show_rating', False):
@@ -1183,23 +1164,12 @@ This chatbot is configured to use the {ai_model} model."""
                         confidence = intent_result.get('confidence', 0.0)
                         patterns = intent_result.get('detected_patterns', [])
 
-                        # Create a personalized rating message
-                        if patterns:
-                            if any('thank' in p.lower() for p in patterns):
-                                rating_message = "You're welcome! How would you rate our conversation?"
-                            elif any('bye' in p.lower() or 'goodbye' in p.lower() for p in patterns):
-                                rating_message = "Thanks for chatting! How was your experience?"
-                            elif any('done' in p.lower() or 'finish' in p.lower() for p in patterns):
-                                rating_message = "Great! Before you go, how would you rate our chat?"
-                            else:
-                                rating_message = "How would you rate your experience with me today?"
-
                         current_app.logger.info(f"🌟 Intent analysis triggered rating: confidence={confidence:.2f}, patterns={patterns}")
 
                         # Mark conversation as ended
-                        conversation = Conversation.query.get(conversation_id)
-                        if conversation:
-                            conversation.conversation_ended = True
+                        conversation_obj = Conversation.query.get(conversation_id)
+                        if conversation_obj:
+                            conversation_obj.conversation_ended = True
                             db.session.commit()
 
                     # Check for confirmation flow
@@ -1223,22 +1193,14 @@ This chatbot is configured to use the {ai_model} model."""
             except Exception as e:
                 current_app.logger.error(f"❌ Error in intent analysis: {e}")
 
-            # FALLBACK: If intent analysis didn't set show_rating but farewell
-            # was detected, still trigger rating. This ensures rating appears
-            # even when intent analysis service is unavailable or errors.
-            if not show_rating and is_farewell:
+            # FALLBACK: If intent analysis was unavailable or errored,
+            # use regex as last-resort fallback for farewell detection.
+            # The LLM response is kept as-is (the system prompt handles farewells
+            # in any language — no hardcoded English override needed).
+            if not show_rating and not intent_analysis_attempted and is_farewell:
                 conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
                 show_rating = True
-                content_lower = content.lower()
-                if 'thank' in content_lower:
-                    rating_message = "You're welcome! How would you rate our conversation?"
-                elif any(w in content_lower for w in ['bye', 'goodbye']):
-                    rating_message = "Thanks for chatting! How was your experience?"
-                elif any(w in content_lower for w in ['done', 'finish']):
-                    rating_message = "Great! Before you go, how would you rate our chat?"
-                else:
-                    rating_message = "How would you rate your experience with me today?"
-                current_app.logger.info(f"🌟 [FALLBACK] Farewell detected, showing rating")
+                current_app.logger.info(f"🌟 [FALLBACK] Regex fallback: farewell detected, showing rating")
 
             response_data = {
                 'success': True,
@@ -1324,33 +1286,8 @@ def send_message_stream(conversation_id):
             if is_farewell:
                 conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
 
-            # === EARLY EXIT: farewell gets rating INSTANTLY, skip RAG/LLM ===
-            if is_farewell:
-                config = chatbot.config or {}
-                content_lower = content.lower()
-                if 'thank' in content_lower:
-                    rating_message = "You're welcome! How would you rate our conversation?"
-                elif any(word in content_lower for word in ['bye', 'goodbye']):
-                    rating_message = "Thanks for chatting! How was your experience?"
-                elif any(word in content_lower for word in ['done', 'finish']):
-                    rating_message = "Great! Before you go, how would you rate our chat?"
-                else:
-                    rating_message = "How would you rate your experience with me today?"
-
-                rating_data = {
-                    'show_rating': True,
-                    'rating_message': rating_message,
-                    'conversation_id': conversation_id
-                }
-                yield f"data: {json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
-                current_app.logger.info(f"🌟 [STREAM] Sent rating INSTANTLY: {rating_message}")
-
-                farewell_response = conversation_service.get_farewell_response(config)
-                for chunk in stream_response_chunks(farewell_response, chunk_size=1, delay=0.005):
-                    yield chunk
-                return
-
-            # === REST OF RAG/LLM ONLY FOR NON-FAREWELL MESSAGES ===
+            # === PROCEED TO RAG/LLM FOR ALL MESSAGES ===
+            # (farewell detection is now handled by AI after response)
             # Get AI configuration
             config = chatbot.config or {}
             try:
@@ -1594,6 +1531,60 @@ def send_message_stream(conversation_id):
             current_app.logger.info(f"💾 Saved message with response_time: {response_time:.2f}s")
 
             current_app.logger.info(f"🌊 Streaming response: {len(ai_response)} chars, type: {type(ai_response)}")
+
+            # Analyze intent after streaming completes (AI-based, chatbot's own model)
+            show_rating = False
+            rating_message = 'How would you rate your experience?'
+            intent_analysis_attempted = False
+
+            try:
+                if hasattr(current_app, 'intent_analysis_service') and current_app.intent_analysis_service:
+                    intent_analysis_attempted = True
+                    recent_messages = Message.query.filter_by(conversation_id=conversation_id)\
+                        .order_by(Message.created_at.desc())\
+                        .limit(6)\
+                        .all()
+
+                    messages_list = []
+                    for msg in reversed(recent_messages):
+                        messages_list.append({
+                            'message_type': msg.message_type,
+                            'content': msg.content
+                        })
+
+                    intent_result = current_app.intent_analysis_service.analyze_conversation_intent(
+                        messages_list, content, config=config
+                    )
+
+                    if intent_result.get('should_show_rating', False):
+                        show_rating = True
+                        confidence = intent_result.get('confidence', 0.0)
+
+                        current_app.logger.info(f"🌟 [STREAM] Intent analysis: rating triggered (confidence={confidence:.2f})")
+
+                        conversation_obj = Conversation.query.get(conversation_id)
+                        if conversation_obj:
+                            conversation_obj.conversation_ended = True
+                            db.session.commit()
+                    else:
+                        current_app.logger.info(f"🧠 [STREAM] Intent analysis: continue - {intent_result.get('reason', 'Unknown')}")
+
+            except Exception as intent_err:
+                current_app.logger.error(f"❌ [STREAM] Intent analysis error: {intent_err}")
+
+            # FALLBACK: regex as last resort if AI was unavailable
+            if not show_rating and not intent_analysis_attempted and is_farewell:
+                conversation_service.detect_conversation_ending(content, conversation_id, last_assistant_msg)
+                show_rating = True
+                current_app.logger.info("🌟 [STREAM][FALLBACK] Regex fallback: farewell detected, showing rating")
+
+            if show_rating:
+                rating_data = {
+                    'show_rating': True,
+                    'rating_message': rating_message,
+                    'conversation_id': conversation_id
+                }
+                yield f"data: {json.dumps({'type': 'rating', 'data': rating_data})}\n\n"
 
         except Exception as e:
             current_app.logger.error(f"Streaming error: {e}")

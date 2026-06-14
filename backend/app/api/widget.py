@@ -76,6 +76,11 @@ def generate_widget_script(chatbot_id):
     # App slug used for DOM IDs / storage keys (derived from APP_NAME)
     _app_slug = (os.environ.get('APP_NAME') or current_app.config.get('APP_NAME') or 'Convoharbor').lower()
 
+    # Read position from chatbot theme config (default: bottom-right)
+    _config = chatbot.config or {}
+    _theme = _config.get('theme', {}) or {}
+    _position = _theme.get('position', 'bottom-right')
+
     # Embeddable JavaScript snippet with website tracking (escape braces for f-string)
     script = f"""
 <div id=\"{_app_slug}-widget-container\"></div>
@@ -99,15 +104,23 @@ def generate_widget_script(chatbot_id):
         var contextParam = encodeURIComponent(JSON.stringify(websiteContext));
         iframe.src = \"{chat_widget_url}?website_context=\" + contextParam;
         iframe.style.border = 'none';
+        iframe.style.outline = 'none';
         iframe.style.position = 'fixed';
-        iframe.style.top = '0';
-        iframe.style.left = '0';
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
         iframe.style.zIndex = '9999';
-        iframe.style.pointerEvents = 'auto';
         iframe.style.background = 'transparent';
+        iframe.style.pointerEvents = 'auto';
         iframe.allow = 'clipboard-write;';
+        // Fixed size — accommodates both closed toggle and open chat window
+        iframe.style.width = '400px';
+        iframe.style.height = '620px';
+        iframe.style.maxWidth = '100vw';
+        iframe.style.maxHeight = '100vh';
+        // Position at configured widget corner
+        var pos = '{_position}';
+        iframe.style.bottom = pos.indexOf('bottom') !== -1 ? '0' : 'auto';
+        iframe.style.top = pos.indexOf('top') !== -1 ? '0' : 'auto';
+        iframe.style.right = pos.indexOf('right') !== -1 ? '0' : 'auto';
+        iframe.style.left = pos.indexOf('left') !== -1 ? '0' : 'auto';
 
         // Store context for session persistence
         if (typeof(Storage) !== \"undefined\") {{
