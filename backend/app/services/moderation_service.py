@@ -43,13 +43,14 @@ def _is_policy_violating(query: str) -> tuple[bool, str]:
     policy_prompt = _prompt_svc().render('moderation', query=query)
 
     try:
-        response_str = current_app.llm_service.generate_answer(
-            prompt=policy_prompt,
-            provider=provider,
+        response_data = current_app.llm_service.generate_answer(
+            messages=[{"role": "user", "content": policy_prompt}],
             model_name=model_name,
             temperature=0.0
         )
-        cleaned_response = response_str.strip().replace("```json", "").replace("```", "")
+        if response_data is None:
+            return {"violates_policy": False, "reason": "LLM unavailable"}
+        cleaned_response = response_data.get('content', '').strip().replace("```json", "").replace("```", "")
         result = json.loads(cleaned_response)
 
         if result.get("violates_policy") is True:

@@ -72,18 +72,23 @@ def debug_gemini():
             try:
                 current_app.logger.info("🔗 [DEBUG] Testing Gemini connection...")
 
+                from ..models import AiModel
+                gemini_model = AiModel.query.filter_by(provider='gemini', is_active=True).first()
+                gemini_model_name = gemini_model.model_name if gemini_model else 'models/gemini-2.0-flash'
+
                 test_response = llm_service.generate_answer(
-                    prompt="Hello! Please respond with exactly: 'Gemini API is working correctly.'",
-                    provider='gemini',
+                    messages=[{"role": "user", "content": "Hello! Please respond with exactly: 'Gemini API is working correctly.'"}],
+                    model_name=gemini_model_name,
                     temperature=0.0
                 )
+                test_content = test_response.get('content', '') if test_response else ''
 
                 debug_results['connection_test'] = {
                     'success': True,
-                    'response': test_response,
-                    'response_length': len(test_response) if test_response else 0,
-                    'contains_expected': 'Gemini API is working correctly' in test_response if test_response else False,
-                    'is_demo_mode': 'demo mode' in test_response.lower() if test_response else False
+                    'response': test_content,
+                    'response_length': len(test_content) if test_content else 0,
+                    'contains_expected': 'Gemini API is working correctly' in test_content if test_content else False,
+                    'is_demo_mode': 'demo mode' in test_content.lower() if test_content else False
                 }
 
                 current_app.logger.info(f"✅ [DEBUG] Connection test result: {test_response[:100]}...")
@@ -129,20 +134,21 @@ def debug_gemini():
                 )
 
                 extraction_response = llm_service.generate_answer(
-                    prompt=extraction_prompt,
-                    provider='gemini',
+                    messages=[{"role": "user", "content": extraction_prompt}],
+                    model_name=gemini_model_name,
                     temperature=0.1
                 )
+                extraction_content = extraction_response.get('content', '') if extraction_response else ''
 
                 debug_results['simple_test'] = {
                     'success': True,
-                    'extracted_content': extraction_response,
-                    'content_length': len(extraction_response) if extraction_response else 0,
-                    'contains_title': 'Main Article Title' in extraction_response if extraction_response else False,
-                    'contains_main_content': 'main content of the article' in extraction_response if extraction_response else False,
-                    'excludes_nav': 'Navigation menu' not in extraction_response if extraction_response else True,
-                    'excludes_footer': 'Footer information' not in extraction_response if extraction_response else True,
-                    'is_demo_mode': 'demo mode' in extraction_response.lower() if extraction_response else False
+                    'extracted_content': extraction_content,
+                    'content_length': len(extraction_content) if extraction_content else 0,
+                    'contains_title': 'Main Article Title' in extraction_content if extraction_content else False,
+                    'contains_main_content': 'main content of the article' in extraction_content if extraction_content else False,
+                    'excludes_nav': 'Navigation menu' not in extraction_content if extraction_content else True,
+                    'excludes_footer': 'Footer information' not in extraction_content if extraction_content else True,
+                    'is_demo_mode': 'demo mode' in extraction_content.lower() if extraction_content else False
                 }
 
                 current_app.logger.info(f"🎯 [DEBUG] Extraction test successful: {len(extraction_response)} chars extracted")

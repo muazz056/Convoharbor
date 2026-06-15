@@ -103,13 +103,14 @@ def rewrite_query_with_history(chat_history: str, latest_query: str, provider: s
     try:
         current_app.logger.info("🔄 REWRITE DEBUG - Calling LLM for query rewriting...")
         response = current_app.llm_service.generate_answer(
-            prompt=rewrite_prompt,
-            provider=provider,  # Use user's specified provider
-            model_name=model_name,  # Use user's specified model
+            messages=[{"role": "user", "content": rewrite_prompt}],
+            model_name=model_name,
             temperature=0.1
         )
+        if response is None:
+            return latest_query
 
-        rewritten_query = response.strip().replace('"', '').replace('REWRITTEN QUERY:', '').strip()
+        rewritten_query = response.get('content', '').strip().replace('"', '').replace('REWRITTEN QUERY:', '').strip()
 
         # Cache the result
         _intent_cache[cache_key] = {
@@ -151,16 +152,15 @@ def ultra_efficient_query_analysis(query: str, provider: str, model_name: str, s
 
     try:
         response = current_app.llm_service.generate_answer(
-            prompt=analysis_prompt,
-            provider=provider,
+            messages=[{"role": "user", "content": analysis_prompt}],
             model_name=model_name,
-            temperature=0.1,
-            session_id=session_id,
-            user_id=user_id
+            temperature=0.1
         )
+        if response is None:
+            return _fallback_analysis(query)
 
         # Parse JSON response
-        result = json.loads(response.strip())
+        result = json.loads(response.get('content', '').strip())
 
         # Cache the result
         _analysis_cache[cache_key] = {
@@ -286,18 +286,18 @@ def ultra_efficient_final_generation(
         current_app.logger.info(f"🚀 ULTRA-EFFICIENT: Single call for final answer{' + translation' if needs_translation else ''}...")
 
         final_answer = current_app.llm_service.generate_answer(
-            prompt=ultra_prompt,
-            provider=provider,
+            messages=[{"role": "user", "content": ultra_prompt}],
             model_name=model_name,
-            temperature=temperature,
-            user_id=user_id,
-            session_id=session_id
+            temperature=temperature
         )
 
         processing_time = time.time() - start_time
         current_app.logger.info(f"⚡ ULTRA-EFFICIENT final generation completed in {processing_time:.2f}s")
 
-        return final_answer.strip()
+        if final_answer is None:
+            return f"I apologize, but I'm having trouble processing your request. Could you please rephrase your question?"
+
+        return final_answer.get('content', '').strip()
 
     except Exception as e:
         current_app.logger.error(f"❌ Error during ultra-efficient final generation: {e}")

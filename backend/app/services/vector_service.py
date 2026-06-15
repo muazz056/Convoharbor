@@ -394,11 +394,13 @@ class VectorService:
             )
 
             response = current_app.llm_service.generate_answer(
-                prompt=rerank_prompt,
-                provider=provider,
+                messages=[{"role": "user", "content": rerank_prompt}],
                 model_name=model_name,
                 temperature=0.1
             )
+            if response is None:
+                return candidates
+            response = response.get('content', '')
 
             raw = response.strip()
             raw = re.sub(r'^```(?:json)?\s*', '', raw)
@@ -442,13 +444,14 @@ class VectorService:
             expand_prompt = PromptService().render('query_expansion', query=original)
 
             response = current_app.llm_service.generate_answer(
-                prompt=expand_prompt,
-                provider=provider,
+                messages=[{"role": "user", "content": expand_prompt}],
                 model_name=model_name,
                 temperature=0.3
             )
+            if response is None:
+                return queries
 
-            raw = response.strip()
+            raw = response.get('content', '').strip()
             raw = re.sub(r'^```(?:json)?\s*', '', raw)
             raw = re.sub(r'\s*```$', '', raw)
             expanded = json.loads(raw)
@@ -562,9 +565,10 @@ class VectorService:
             merged = self._rerank(query, merged)
 
             merged = merged[:limit]
+            top_score = f"{merged[0][0]:.3f}" if merged else "0"
             current_app.logger.info(
                 f"[ENHANCED_SEARCH] final {len(merged)} results for limit={limit} "
-                f"top_score={merged[0][0]:.3f if merged else 0}"
+                f"top_score={top_score}"
             )
 
             docs = self._results_to_docs([
