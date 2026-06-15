@@ -21,18 +21,23 @@ def _context_has_meaningful_content(text):
 
 
 def _context_relevant_to_query(context_text, query):
-    """Quick heuristic: if the query mentions a specific noun/term that is completely absent from the context, the context likely does not answer the query. Returns True if we should proceed with context, False if we should fall back to out_of_scope."""
+    """Check whether any significant query word (or its singular/plural variant) appears in the context. Uses substring matching with basic plurality normalization so that 'projects' also matches 'project' and vice versa."""
     if not context_text or not query:
         return True
     query_lower = query.lower()
     context_lower = context_text.lower()
-    # Extract significant words (4+ chars) from the query
-    query_words = [w for w in re.findall(r'[A-Za-z0-9]{4,}', query_lower) if w not in {'what', 'when', 'where', 'why', 'how', 'does', 'is', 'the', 'this', 'that', 'with', 'from', 'have', 'are', 'was', 'were', 'can', 'you', 'tell', 'give', 'some'}]
+    stop_words = {'what', 'when', 'where', 'why', 'how', 'does', 'is', 'the', 'this', 'that', 'with', 'from', 'have', 'are', 'was', 'were', 'can', 'you', 'tell', 'give', 'some'}
+    query_words = [w for w in re.findall(r'[A-Za-z0-9]{4,}', query_lower) if w not in stop_words]
     if not query_words:
         return True
-    # If ANY significant query word appears in context, consider it relevant enough
     for w in query_words:
         if w in context_lower:
+            return True
+        # Plural → singular (projects → project)
+        if w.endswith('s') and w[:-1] in context_lower:
+            return True
+        # Singular → plural (project → projects)
+        if w + 's' in context_lower:
             return True
     return False
 
@@ -818,11 +823,26 @@ def send_message_json(conversation_id):
                     config = chatbot.config or {}
                     top_k = chatbot_defaults.resolve_field(config, 'top_k')
 
-                    # Perform semantic vector search
+                    # Build chat history for query rewriting context
+                    try:
+                        prev_msgs = Message.query.filter(
+                            Message.conversation_id == conversation_id,
+                            Message.id != user_message.id
+                        ).order_by(Message.created_at.asc()).all()
+                        chat_history_lines = []
+                        for m in prev_msgs[-10:]:
+                            prefix = "User" if m.message_type == 'user' else "Assistant"
+                            chat_history_lines.append(f"{prefix}: {m.content}")
+                        chat_history = "\n".join(chat_history_lines)
+                    except Exception:
+                        chat_history = ""
+
+                    # Perform enhanced semantic vector search
                     search_results = current_app.vector_service.search_similar(
                         query=content,
                         chatbot_id=chatbot_id,
-                        limit=top_k
+                        limit=top_k,
+                        chat_history=chat_history
                     )
 
                     current_app.logger.info(f"🔍 Vector search returned {len(search_results)} results for chatbot {chatbot_id}")
@@ -1297,6 +1317,20 @@ def send_message_stream(conversation_id):
                 ai_model = config.get('ai_model') or config.get('model')
                 ai_provider = config.get('ai_provider')
 
+            # Build chat history for query rewriting context
+            try:
+                prev_msgs = Message.query.filter(
+                    Message.conversation_id == conversation_id,
+                    Message.id != user_message.id
+                ).order_by(Message.created_at.asc()).all()
+                chat_history_lines = []
+                for m in prev_msgs[-10:]:
+                    prefix = "User" if m.message_type == 'user' else "Assistant"
+                    chat_history_lines.append(f"{prefix}: {m.content}")
+                chat_history = "\n".join(chat_history_lines)
+            except Exception:
+                chat_history = ""
+
             # Search knowledge base for context
             context_text = ""
             try:
@@ -1305,11 +1339,12 @@ def send_message_stream(conversation_id):
                     # single source of truth so .env defaults apply).
                     top_k = chatbot_defaults.resolve_field(config, 'top_k')
 
-                    # Perform semantic vector search
+                    # Perform enhanced semantic vector search
                     search_results = current_app.vector_service.search_similar(
                         query=content,
                         chatbot_id=chatbot.id,
-                        limit=top_k
+                        limit=top_k,
+                        chat_history=chat_history
                     )
 
                     current_app.logger.info(f"🔍 [STREAM] Vector search found {len(search_results)} results")

@@ -195,11 +195,12 @@ def create_app(config_name='default'):
             app.prompt_service = PromptService()
 
             class EmbeddingServiceWrapper:
-                def generate_embeddings_for_texts(self, texts, on_batch_start=None, on_batch_done=None):
+                def generate_embeddings_for_texts(self, texts, on_batch_start=None, on_batch_done=None, provider=None):
                     return generate_embeddings_for_texts(
                         texts,
                         on_batch_start=on_batch_start,
                         on_batch_done=on_batch_done,
+                        provider=provider,
                     )
 
             app.embedding_service = EmbeddingServiceWrapper()

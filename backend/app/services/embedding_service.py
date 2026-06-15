@@ -236,7 +236,7 @@ def _gemini_embed(texts: list[str], api_key: str, model_name: str, api_endpoint:
 
 
 def generate_embeddings_for_texts(texts: list[str], on_batch_start=None,
-                                  on_batch_done=None) -> dict:
+                                  on_batch_done=None, provider: str = None) -> dict:
     """Generate embeddings for a list of texts using the configured provider.
 
     Optional progress callbacks let the ingestion pipeline push real-time
@@ -260,12 +260,15 @@ def generate_embeddings_for_texts(texts: list[str], on_batch_start=None,
             returned 429 and we're sleeping for the retry window).
         on_batch_done: ``fn(batch_index, total_batches, batch_size,
             embeddings_so_far)`` called after each successful batch.
+        provider: override the active embedding provider. If not set,
+            uses EMBEDDINGS_SERVICE_USE from config.
 
     Returns:
         dict with keys ``embeddings`` (list[list[float]] or None),
         ``provider`` (str) and ``error`` (str, only if failed).
     """
-    provider = current_app.config.get('EMBEDDINGS_SERVICE_USE', 'openai')
+    if provider is None:
+        provider = current_app.config.get('EMBEDDINGS_SERVICE_USE', 'openai')
 
     if provider == 'local':
         try:

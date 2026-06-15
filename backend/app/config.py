@@ -114,9 +114,9 @@ class Config:
     ENCRYPTION_SALT = os.environ.get('ENCRYPTION_SALT') or 'change-this-salt-in-production'
 
     # Retrieval & Document Processing Settings
-    RETRIEVAL_SCORE_THRESHOLD = 0.4
-    CHUNK_SIZE = 1000
-    CHUNK_OVERLAP = 150
+    RETRIEVAL_SCORE_THRESHOLD = float(os.environ.get('RETRIEVAL_SCORE_THRESHOLD', '0.4'))
+    CHUNK_SIZE = int(os.environ.get('CHUNK_SIZE', '1000'))
+    CHUNK_OVERLAP = int(os.environ.get('CHUNK_OVERLAP', '150'))
 
     # =============================================================
     # Chatbot Config Defaults (used when fields are missing from
