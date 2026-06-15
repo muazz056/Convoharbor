@@ -513,8 +513,20 @@ def delete_datasource(datasource_id):
         if not datasource:
             return jsonify({'error': 'Data source not found'}), 404
 
-        # TODO: Delete from vector database
-        # TODO: Notify AI service to remove content
+        # Delete from vector database (document_embeddings table)
+        try:
+            from ..models.document_embedding import DocumentEmbedding
+            deleted_count = DocumentEmbedding.query.filter(
+                DocumentEmbedding.source == datasource.source_name,
+                DocumentEmbedding.chatbot_id == datasource.chatbot_id,
+                DocumentEmbedding.tenant_id == g.tenant_id
+            ).delete(synchronize_session=False)
+            if deleted_count:
+                current_app.logger.info(
+                    f"🗑️ Deleted {deleted_count} document_embeddings for source '{datasource.source_name}'"
+                )
+        except Exception as ve:
+            current_app.logger.warning(f"⚠️ Could not delete document embeddings: {ve}")
 
         # Delete from database
         db.session.delete(datasource)
