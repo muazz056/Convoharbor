@@ -499,20 +499,7 @@ class VectorService:
                     current_app.logger.info(f"Cache hit for vector search: '{query[:50]}...'")
                     return self._dicts_to_docs(cached)
 
-            # Step 1: Rewrite query with history for better retrieval
-            rewritten_query = self.rewrite_query(query, chat_history=chat_history or '')
-            current_app.logger.info(
-                f"[ENHANCED_SEARCH] query='{query[:60]}' rewritten='{rewritten_query[:60]}'"
-            )
-
-            # Step 2: Expand query into multiple search variants
-            expanded_queries = self.expand_query(rewritten_query)
-            current_app.logger.info(
-                f"[ENHANCED_SEARCH] expanded into {len(expanded_queries)} queries: {[q[:40] for q in expanded_queries]}"
-            )
-
-            # Step 3: Find which providers actually have data for this chatbot
-            # (ignore EMBEDDINGS_SERVICE_USE config — use what's stored in DB)
+            # Step 1: Find which providers actually have data for this chatbot
             active_providers_rows = db.session.query(
                 DocumentEmbedding.provider
             ).filter(
@@ -521,37 +508,33 @@ class VectorService:
             ).distinct().all()
             active_providers = [r[0] for r in active_providers_rows if r[0]]
             if not active_providers:
-                # Fallback to config if no data in DB yet
                 active_providers = [current_app.config.get('EMBEDDINGS_SERVICE_USE', 'openai')]
             current_app.logger.info(
                 f"[ENHANCED_SEARCH] active_providers_in_db={active_providers} for chatbot {chatbot_id}"
             )
 
-            # Step 4: Search with each expanded query in each active provider's column
+            # Step 2: Search with original query in each active provider's column
             all_results = {}
             for provider in active_providers:
-                for qi, q_text in enumerate(expanded_queries):
-                    try:
-                        emb_result = current_app.embedding_service.generate_embeddings_for_texts(
-                            [q_text], provider=provider
-                        )
-                        emb_list = emb_result.get("embeddings")
-                        if not emb_list:
-                            continue
-                        q_emb = emb_list[0]
-                        filter_dict = {"provider": provider, "chatbot_id": chatbot_id}
-                        query_weight = 1.0 if qi == 0 else 0.7
-                        results = self.query(q_emb, top_k=max(limit * 3, 15), filter_dict=filter_dict,
-                                             query_text=q_text)
-                        for r in results:
-                            key = (r['metadata']['doc_id'], r['metadata']['chunk_index'])
-                            weighted_score = r['score'] * query_weight
-                            if key not in all_results or weighted_score > all_results[key][0]:
-                                all_results[key] = (weighted_score, r['page_content'], r['metadata'])
-                    except Exception as q_err:
-                        current_app.logger.warning(
-                            f"[ENHANCED_SEARCH] provider={provider} query '{q_text[:40]}' failed: {q_err}"
-                        )
+                try:
+                    emb_result = current_app.embedding_service.generate_embeddings_for_texts(
+                        [query], provider=provider
+                    )
+                    emb_list = emb_result.get("embeddings")
+                    if not emb_list:
+                        continue
+                    q_emb = emb_list[0]
+                    filter_dict = {"provider": provider, "chatbot_id": chatbot_id}
+                    results = self.query(q_emb, top_k=max(limit * 3, 15), filter_dict=filter_dict,
+                                         query_text=query)
+                    for r in results:
+                        key = (r['metadata']['doc_id'], r['metadata']['chunk_index'])
+                        if key not in all_results or r['score'] > all_results[key][0]:
+                            all_results[key] = (r['score'], r['page_content'], r['metadata'])
+                except Exception as q_err:
+                    current_app.logger.warning(
+                        f"[ENHANCED_SEARCH] provider={provider} query failed: {q_err}"
+                    )
 
             if not all_results:
                 current_app.logger.warning(
@@ -559,12 +542,7 @@ class VectorService:
                 )
                 return []
 
-            merged = sorted(all_results.values(), key=lambda x: -x[0])[:max(limit * 2, 10)]
-
-            # Step 5: Re-rank with LLM
-            merged = self._rerank(query, merged)
-
-            merged = merged[:limit]
+            merged = sorted(all_results.values(), key=lambda x: -x[0])[:limit]
             top_score = f"{merged[0][0]:.3f}" if merged else "0"
             current_app.logger.info(
                 f"[ENHANCED_SEARCH] final {len(merged)} results for limit={limit} "
