@@ -125,7 +125,14 @@ const ChatHistory = () => {
     }, [navigate]);
 
     const formatDate = (dateString) => new Date(dateString).toLocaleString();
-
+    const formatShortDate = (dateString) => {
+        const d = new Date(dateString);
+        const now = new Date();
+        const diff = now - d;
+        if (diff < 86400000) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (diff < 604800000) return d.toLocaleDateString([], { weekday: 'short' });
+        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    };
 
     const cleanupConversations = async (type = 'empty') => {
         if (!window.confirm(`Are you sure you want to delete ${type === 'all' ? 'ALL' : type} embed conversations? This cannot be undone.`)) {
@@ -213,25 +220,35 @@ const ChatHistory = () => {
                             {!state.selectedChatbotId ? (
                                 // Chatbots list
                                 state.chatbots.length > 0 ? (
-                                    state.chatbots.map(chatbot => (
+                                    state.chatbots.map(chatbot => {
+                                        const colors = ['#8B5CF6', '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#EC4899'];
+                                        const colorIdx = chatbot.id % colors.length;
+                                        return (
                                         <div
                                             key={chatbot.id}
                                             className="chatbot-card clickable"
                                             onClick={() => handleSelectChatbot(chatbot.id)}
                                         >
+                                            <div className="chatbot-card-accent" style={{ background: colors[colorIdx] }}></div>
                                             <div className="card-header">
+                                                <div className="chatbot-card-icon" style={{ background: colors[colorIdx] + '20', color: colors[colorIdx] }}>
+                                                    {chatbot.name?.charAt(0).toUpperCase() || 'B'}
+                                                </div>
                                                 <div className="chatbot-info">
                                                     <h3 className="chatbot-name">{chatbot.name}</h3>
-                                                    <p className="chatbot-description">{chatbot.description || 'No description'}</p>
+                                                    {chatbot.description && (
+                                                        <p className="chatbot-description">{chatbot.description}</p>
+                                                    )}
+                                                    <span className="chatbot-card-action">View Conversations →</span>
                                                 </div>
                                                 <div className="chatbot-meta">
                                                     <span className="chatbot-type">{chatbot.type || 'general'}</span>
-                                                    <span className="chatbot-model">{chatbot.ai_provider || 'AI'}: {chatbot.ai_model || 'model'}</span>
                                                 </div>
                                             </div>
                                         </div>
-                                    ))
-                                ) : (
+                                        );
+                                    }))
+                                : (
                                     <div className="empty-state">
                                         <div className="empty-icon">🤖</div>
                                         <h3>No Chatbots Found</h3>
@@ -247,92 +264,69 @@ const ChatHistory = () => {
                 </div>
                                 ) : state.conversations.length > 0 ? (
                                     state.conversations.map(conv => {
-                                        console.log(`🏷️ Rendering conversation ${conv.id} with status: "${conv.status}"`);
+                                        const preview = conv.latest_message?.content || '';
+                                        const previewType = conv.latest_message?.message_type || '';
                                         return (
                                             <div
                                                 key={conv.id}
                                                 className="chatbot-card conversation-card"
+                                                onClick={() => handleSelectConversation(conv.id)}
                                             >
                                                 <div className="card-header">
-                                                    <div 
-                                                        className="chatbot-info clickable"
-                                                        onClick={() => handleSelectConversation(conv.id)}
-                                                    >
-                                                        <h3 className="chatbot-name">
-                                                            {conv.source_domain ? (
-                                                                <>
-                                                                    🌐 {conv.source_domain}
-                                                                    {conv.source_metadata?.path && (
-                                                                        <small className="domain-path">{conv.source_metadata.path}</small>
-                                                                    )}
-                                                                </>
-                                                            ) : (
-                                                                conv.title || `Session ${conv.session_id?.substring(0,8)}`
-                                                            )}
-                                                        </h3>
-                                                        <p className="chatbot-description">
-                                                            <span className="conversation-date">{formatDate(conv.created_at)}</span>
-                                                            {conv.source_domain && (
-                                                                <span className="website-info">
-                                                                    from {conv.source_domain}
-                                                                </span>
-                                                            )}
-                                                            {!conv.source_domain && conv.title && (
-                                                                <span className="conversation-type">
-                                                                    {conv.title.replace('Embed Chat - ', '')}
-                                                                </span>
-                                                            )}
-                                                        </p>
+                                                    <div className="conv-card-icon">
+                                                        {conv.source_domain ? (
+                                                            <span className="conv-card-domain-icon">🌐</span>
+                                                        ) : (
+                                                            <span className="conv-card-chat-icon">💬</span>
+                                                        )}
                                                     </div>
-                                                    <div className="conversation-actions">
-                                                        <div className="conversation-status">
-                                                            <span className={`status-tag ${conv.status === 'active' ? 'status-active' : 'status-inactive'}`}>
-                                                                {conv.status === 'active' ? 'ACTIVE' : (conv.status === 'inactive' ? 'INACTIVE' : conv.status?.toUpperCase() || 'UNKNOWN')}
+                                                    <div className="chatbot-info conv-card-info">
+                                                        <div className="conv-card-top">
+                                                            <h3 className="conv-card-title">
+                                                                {conv.source_domain || conv.title?.replace('Embed Chat - ', '') || `Session ${conv.session_id?.substring(0,8)}`}
+                                                            </h3>
+                                                            <span className={`conv-card-status ${conv.status === 'active' ? 'conv-status-active' : 'conv-status-inactive'}`}>
+                                                                {conv.status === 'active' ? 'Active' : 'Inactive'}
                                                             </span>
                                                         </div>
-                                                        <div className="conversation-buttons">
-                                                            <button
-                                                                className="btn-view"
-                                                                onClick={() => handleSelectConversation(conv.id)}
-                                                                title="View conversation"
-                                                            >
-                                                                👁️
-                                                            </button>
-                                                            <button
-                                                                className="btn-delete"
-                                                                onClick={async (e) => {
-                                                                    console.log('🗑️ Delete button clicked for conversation:', conv.id);
-                                                                    e.stopPropagation();
-                                                                    e.preventDefault();
-                                                                    
-                                                                    const title = conv.source_domain || conv.title || `Session ${conv.session_id?.substring(0,8)}`;
-                                                                    console.log('🗑️ Showing confirmation dialog for:', title);
-                                                                    
-                                                                    if (!window.confirm(`Are you sure you want to delete "${title}"? This cannot be undone.`)) {
-                                                                        console.log('🗑️ Delete cancelled by user');
-                                                                        return;
-                                                                    }
-                                                                    
-                                                                    console.log('🗑️ User confirmed deletion, proceeding...');
-                                                                    
-                                                                    try {
-                                                                        console.log('🗑️ Calling deleteConversation API...');
-                                                                        await conversationService.deleteConversation(conv.id);
-                                                                        console.log('🗑️ Delete API call successful, refreshing conversations...');
-                                                                        await refreshConversations();
-                                                                        console.log('✅ Conversation deleted and refreshed successfully');
-                                                                        alert('✅ Conversation deleted successfully');
-                                                                    } catch (error) {
-                                                                        console.error('❌ Delete failed:', error);
-                                                                        alert(`❌ Delete failed: ${error.response?.data?.error || error.message}`);
-                                                                    }
-                                                                }}
-                                                                title="Delete conversation"
-                                                                style={{ zIndex: 1000, position: 'relative' }}
-                                                            >
-                                                                🗑️
-                                                            </button>
+                                                        {preview && (
+                                                            <p className="conv-card-preview">
+                                                                <span className="conv-preview-label">{previewType === 'user' ? 'User: ' : 'Bot: '}</span>
+                                                                {preview}
+                                                            </p>
+                                                        )}
+                                                        <div className="conv-card-meta">
+                                                            <span className="conv-card-date">{formatShortDate(conv.created_at)}</span>
+                                                            {conv.source_domain && (
+                                                                <span className="conv-card-domain">{conv.source_domain}</span>
+                                                            )}
                                                         </div>
+                                                    </div>
+                                                    <div className="conv-card-actions">
+                                                        <button
+                                                            className="conv-card-view"
+                                                            onClick={(e) => { e.stopPropagation(); handleSelectConversation(conv.id); }}
+                                                            title="View conversation"
+                                                        >
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                                        </button>
+                                                        <button
+                                                            className="conv-card-delete"
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const title = conv.source_domain || conv.title || `Session ${conv.session_id?.substring(0,8)}`;
+                                                                if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+                                                                try {
+                                                                    await conversationService.deleteConversation(conv.id);
+                                                                    await refreshConversations();
+                                                                } catch (error) {
+                                                                    alert(`Delete failed: ${error.response?.data?.error || error.message}`);
+                                                                }
+                                                            }}
+                                                            title="Delete conversation"
+                                                        >
+                                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                                        </button>
                                                     </div>
                                                 </div>
                                             </div>

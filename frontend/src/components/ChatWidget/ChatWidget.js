@@ -27,6 +27,8 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
     const messagesEndRef = useRef(null);
     const messagesContainerRef = useRef(null);
     const loadedFromAPI = useRef(false);
+    const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+    const descriptionTimerRef = useRef(null);
 
     // Storage key for test mode (local-only messages)
     const getTestStorageKey = () => `test_widget_messages_${chatbotId}`;
@@ -42,6 +44,35 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
             onClose();
         }
     };
+
+    const toggleDescription = () => {
+        if (descriptionExpanded) {
+            setDescriptionExpanded(false);
+            if (descriptionTimerRef.current) {
+                clearTimeout(descriptionTimerRef.current);
+                descriptionTimerRef.current = null;
+            }
+        } else {
+            setDescriptionExpanded(true);
+            if (descriptionTimerRef.current) {
+                clearTimeout(descriptionTimerRef.current);
+            }
+            descriptionTimerRef.current = setTimeout(() => {
+                setDescriptionExpanded(false);
+                descriptionTimerRef.current = null;
+            }, 12000);
+        }
+    };
+
+    // Cleanup timer on unmount
+    useEffect(() => {
+        return () => {
+            if (descriptionTimerRef.current) {
+                clearTimeout(descriptionTimerRef.current);
+            }
+        };
+    }, []);
+
     // Persist rating prompt across re-mounts (when stream closes and widget rerenders)
     const getRatingStorageKey = (convId) => convId ? `convoharbor_rating_prompt_${convId}` : null;
 
@@ -1153,13 +1184,26 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
             {isOpen && (
                 <div className="chat-window">
                     <div className="chat-header" style={{ background: themeConfig.primaryColor }}>
-                        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className="chat-header-info">
                             <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                             </svg>
-                            {chatbotInfo?.name || 'Assistant'}
-                            {testMode && <span className="test-mode-badge">🧪 Test</span>}
-                        </span>
+                            <div className="chat-header-text">
+                                <div className="chat-header-name">
+                                    {chatbotInfo?.name || 'Assistant'}
+                                    {testMode && <span className="test-mode-badge">🧪 Test</span>}
+                                </div>
+                                {chatbotInfo?.description && (
+                                    <div
+                                        className={'chat-header-description' + (descriptionExpanded ? ' expanded' : '')}
+                                        onClick={toggleDescription}
+                                        title={descriptionExpanded ? 'Click to collapse' : 'Click to expand'}
+                                    >
+                                        {chatbotInfo.description}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                         <div className="header-actions">
                             <button
                                 className="clear-chat-button"

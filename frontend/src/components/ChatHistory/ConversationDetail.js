@@ -37,68 +37,73 @@ const ConversationDetail = () => {
     }, [conversationId, navigate]);
 
     const formatDate = (d) => new Date(d).toLocaleString();
+    const assistantColor = '#F3F4F6';
+    const userColor = '#8B5CF6';
 
     return (
-                <div className="page" id="conversation-detail">
-                    <div className="page-header">
-                        <div>
-                            <h1 className="page-title">Conversation Details</h1>
-                            <p className="page-subtitle">
-                                {state.conversation?.title || `Conversation ${conversationId}`}
-                                {state.conversation?.created_at && (
-                                    <span> • Started {formatDate(state.conversation.created_at)}</span>
-                                )}
-                            </p>
-                        </div>
-                        <button className="primary-button" onClick={() => navigate(-1)}>
-                            ← Back
-                        </button>
+        <div className="page" id="conversation-detail">
+            <div className="page-header">
+                <div>
+                    <h1 className="page-title">Conversation Details</h1>
+                    <p className="page-subtitle">
+                        {state.conversation?.title || `Conversation ${conversationId}`}
+                        {state.conversation?.created_at && (
+                            <span> • Started {formatDate(state.conversation.created_at)}</span>
+                        )}
+                    </p>
+                </div>
+                <button className="primary-button" onClick={() => navigate(-1)}>
+                    ← Back
+                </button>
+            </div>
+
+            {state.error && (
+                <div className="error-message">
+                    <span>⚠️ {state.error}</span>
+                </div>
+            )}
+
+            {state.loading ? (
+                <div className="section-card">
+                    <div className="loading-state">
+                        <div className="spinner"></div>
+                        <p>Loading conversation...</p>
                     </div>
-
-                    {state.error && (
-                        <div className="error-message">
-                            <span>⚠️ {state.error}</span>
-                        </div>
-                    )}
-
-                    {state.loading ? (
-                        <div className="section-card">
-                            <div className="loading-state">
-                                <div className="spinner"></div>
-                                <p>Loading conversation...</p>
-                            </div>
+                </div>
+            ) : (
+                <div className="conv-detail-chat-container">
+                    {state.messages.length === 0 ? (
+                        <div className="empty-state">
+                            <div className="empty-icon">💬</div>
+                            <h3>No Messages</h3>
+                            <p>This conversation doesn't have any messages yet.</p>
                         </div>
                     ) : (
-                        <div className="section-card">
-                            <div className="section-header">
-                                <h2 className="section-title">Messages</h2>
-                                <p className="section-subtitle">{state.messages.length} messages in this conversation</p>
+                        <div className="conv-detail-messages">
+                            <div className="conv-detail-header-info">
+                                <span className="conv-detail-msg-count">{state.messages.length} messages</span>
                             </div>
-
-                            <div className="messages-container">
-                                {state.messages.length === 0 ? (
-                                    <div className="empty-state">
-                                        <div className="empty-icon">💬</div>
-                                        <h3>No Messages</h3>
-                                        <p>This conversation doesn't have any messages yet.</p>
-                                    </div>
-                                ) : (
-                                    state.messages.map(msg => (
-                                        <div key={msg.id} className={`message-bubble ${msg.message_type === 'user' ? 'user-message' : 'assistant-message'}`}>
-                                            <div className="message-header">
-                                                <span className="message-sender">{msg.message_type === 'user' ? 'User' : 'Assistant'}</span>
-                                                <span className="message-time">{formatDate(msg.created_at)}</span>
-                                            </div>
-                                            <div className="message-content">
-                                                <MarkdownMessage content={msg.content || ''} />
-                                            </div>
+                            {state.messages.map(msg => (
+                                <div key={msg.id} className={`conv-message ${msg.message_type === 'user' ? 'conv-message-user' : 'conv-message-assistant'}`}>
+                                    {msg.message_type !== 'user' && (
+                                        <div className="conv-message-avatar">AI</div>
+                                    )}
+                                    <div className="conv-message-bubble" style={{
+                                        background: msg.message_type === 'user' ? userColor : assistantColor,
+                                        color: msg.message_type === 'user' ? '#FFFFFF' : '#111827',
+                                    }}>
+                                        <div className="conv-message-text">
+                                            <MarkdownMessage content={msg.content || ''} />
                                         </div>
-                                    ))
-                                )}
-                            </div>
+                                        <div className="conv-message-time">{formatDate(msg.created_at)}</div>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     )}
                 </div>
+            )}
+        </div>
     );
 };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import "./ConfigDesign.css";
 import { chatbotService } from '../../services/chatbot.service';
@@ -33,6 +33,35 @@ import widgetService from '../../services/widget.service';
   // Mode state
   const [mode, setMode] = useState('strict');
 
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
+  const descriptionTimerRef = useRef(null);
+
+  const toggleDescription = () => {
+    if (descriptionExpanded) {
+      setDescriptionExpanded(false);
+      if (descriptionTimerRef.current) {
+        clearTimeout(descriptionTimerRef.current);
+        descriptionTimerRef.current = null;
+      }
+    } else {
+      setDescriptionExpanded(true);
+      if (descriptionTimerRef.current) {
+        clearTimeout(descriptionTimerRef.current);
+      }
+      descriptionTimerRef.current = setTimeout(() => {
+        setDescriptionExpanded(false);
+        descriptionTimerRef.current = null;
+      }, 12000);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (descriptionTimerRef.current) {
+        clearTimeout(descriptionTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     console.log('🔍 ConfigDesign: URL params:', Object.fromEntries(searchParams));
@@ -334,7 +363,7 @@ import widgetService from '../../services/widget.service';
                       placeholder="What will this chatbot help with?"
                       rows="3"
                     />
-                    <span className="helper-text">Describe the purpose and capabilities of your chatbot</span>
+                    <span className="helper-text">Name and description will be shown to users on the chatbot embed/widget</span>
                   </div>
 
                   <div className="form-grid">
@@ -590,7 +619,18 @@ import widgetService from '../../services/widget.service';
                         <div className={`chatbot-preview ${themeConfig.position}`}>
                           <div className="chat-widget-preview" style={{ backgroundColor: themeConfig.primaryColor }}>
                             <div className="chat-header-preview">
-                              <span>Support Bot</span>
+                              <div className="chat-header-preview-info">
+                                <div className="chat-header-preview-name">{formData?.name || 'Assistant'}</div>
+                                {formData?.description && (
+                                  <div
+                                    className={'chat-header-preview-desc' + (descriptionExpanded ? ' expanded' : '')}
+                                    onClick={toggleDescription}
+                                    title={descriptionExpanded ? 'Click to collapse' : 'Click to expand'}
+                                  >
+                                    {formData.description}
+                                  </div>
+                                )}
+                              </div>
                               <button className="close-btn-preview">✕</button>
                             </div>
                             <div className="chat-messages-preview">

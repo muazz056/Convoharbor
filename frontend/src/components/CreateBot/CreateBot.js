@@ -144,7 +144,7 @@ import { chatbotService } from '../../services/chatbot.service';
                         placeholder="What will this chatbot help with?"
                         rows="3"
                       />
-                      <span className="helper-text">Describe the purpose and capabilities of your chatbot</span>
+                      <span className="helper-text">Name and description will be shown to users on the chatbot embed/widget</span>
                     </div>
 
                     <div className="form-grid">

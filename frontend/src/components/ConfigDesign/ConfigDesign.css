@@ -388,9 +388,43 @@ textarea.form-control {
   color: white;
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   font-weight: 600;
   font-size: 14px;
+}
+
+.chat-header-preview-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-header-preview-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chat-header-preview-desc {
+  font-size: 10px;
+  opacity: 0.8;
+  line-height: 1.3;
+  margin-top: 2px;
+  font-weight: 400;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.chat-header-preview-desc.expanded {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+  opacity: 1;
 }
 
 .close-btn-preview {
