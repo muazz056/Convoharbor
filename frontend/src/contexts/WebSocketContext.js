@@ -28,8 +28,9 @@ export const WebSocketProvider = ({ children }) => {
     const newSocket = io(baseURL + namespace, {
       transports: ['polling', 'websocket'],
       upgrade: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 3000,
+      reconnectionAttempts: 20,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 30000,
       timeout: 20000,
       forceNew: true,
       auth

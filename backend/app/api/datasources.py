@@ -513,6 +513,13 @@ def delete_datasource(datasource_id):
         if not datasource:
             return jsonify({'error': 'Data source not found'}), 404
 
+        # Mark as deleted first to signal background threads to stop
+        try:
+            datasource.status = 'deleted'
+            db.session.flush()
+        except Exception:
+            pass
+
         # Delete from vector database (document_embeddings table)
         try:
             from ..models.document_embedding import DocumentEmbedding
@@ -703,6 +710,25 @@ def trigger_web_crawl():
             'message': 'Please provide a valid HTTP or HTTPS URL'
         }), 400
 
+    # Determine crawl type from explicit request field
+    crawl_type = data.get('crawl_type', 'specific')  # 'specific' | 'full'
+    depth = data.get('depth', 'single')  # 'single' | 'depth1' | 'depth2'
+    path = parsed_url.path.rstrip('/')
+
+    if crawl_type == 'full':
+        # Validate URL is a root URL (no path)
+        if path and path != '':
+            return jsonify({
+                'error': 'Invalid URL for full crawl',
+                'message': 'Full crawl requires a root URL (e.g. https://example.com). '
+                           f'Got: {url}'
+            }), 400
+        _full_crawl = True
+    else:
+        _full_crawl = False
+        if depth not in ('single', 'depth1', 'depth2'):
+            depth = 'single'
+
     # Optional chatbot validation
     chatbot_id = data.get('chatbot_id')
     if chatbot_id:
@@ -746,6 +772,33 @@ def trigger_web_crawl():
             'message': 'Web crawling service is currently unavailable. Please try again later.'
         }), 503
 
+    # Store description for background thread
+    _description = data.get('description', '')
+
+    # For full crawl: estimate page count first; reject if > 250
+    if _full_crawl:
+        try:
+            from ..services.web_extraction_service import WebExtractionService
+            estimator = WebExtractionService()
+            page_count = estimator.estimate_page_count(url)
+            current_app.logger.info(
+                f"📊 Estimated page count for {url}: {page_count}"
+            )
+            if page_count > 250:
+                return jsonify({
+                    'error': 'Page limit exceeded',
+                    'message': (
+                        f"This website has approximately {page_count} pages, "
+                        f"which exceeds the maximum limit of 250 pages. "
+                        f"Full crawl is not available for websites larger "
+                        f"than 250 pages."
+                    )
+                }), 400
+        except Exception as e:
+            current_app.logger.warning(
+                f"⚠️ Page count estimation failed, proceeding anyway: {e}"
+            )
+
     try:
         crawl_job_id = str(uuid.uuid4())
         tenant_id = g.tenant_id
@@ -765,7 +818,9 @@ def trigger_web_crawl():
                 'description': data.get('description', ''),
                 'started_at': datetime.utcnow().isoformat(),
                 'domain': parsed_url.netloc,
-                'original_url': url
+                'original_url': url,
+                'crawl_type': crawl_type,
+                'depth': depth
             }
         )
 
@@ -781,16 +836,16 @@ def trigger_web_crawl():
         _app = current_app._get_current_object()
         _db = db
         _url = url
-        _full_crawl = data.get('full_crawl', True)
-        _description = data.get('description', '')
         _chatbot_id = chatbot_id
         _structure_model_name = structure_model_name
         _structure_model_provider = structure_model_provider
+        _depth = depth
+        _crawl_type = crawl_type
 
         def _run_crawl():
             with _app.app_context():
                 def _emit_log(message, level='info'):
-                    """Send a crawl log event to the frontend."""
+                    """Send a crawl log event to the frontend and persist to meta_data."""
                     try:
                         socketio = getattr(
                             current_app, 'socketio', None
@@ -807,11 +862,28 @@ def trigger_web_crawl():
                             }, room=f"user_{user_id}", namespace='/')
                     except Exception:
                         pass
+                    # Persist latest message so HTTP polling can see it
+                    try:
+                        ds = DataSource.query.get(data_source_id)
+                        if ds and ds.status not in ('completed', 'failed', 'deleted'):
+                            ds.meta_data = {
+                                **(ds.meta_data or {}),
+                                'progress_message': message
+                            }
+                            _db.session.commit()
+                    except Exception:
+                        pass
 
                 try:
                     _emit_log(
                         f"Starting crawl for {_url}", 'start'
                     )
+
+                    # Check if cancelled before proceeding
+                    ds_check = DataSource.query.get(data_source_id)
+                    if not ds_check or ds_check.status == 'deleted':
+                        _emit_log("Crawl cancelled - data source was deleted", 'warning')
+                        return
 
                     from ..services.web_extraction_service import (
                         WebExtractionService,
@@ -856,9 +928,23 @@ def trigger_web_crawl():
                         "Discovering website URLs...", 'step'
                     )
 
-                    if _full_crawl:
+                    if _crawl_type == 'full':
                         extraction_result = web_extractor.crawl_full_website(
                             _url,
+                            description=_description,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            progress_callback=progress_callback,
+                            model_name=_structure_model_name,
+                            model_provider=_structure_model_provider
+                        )
+                    elif _depth == 'depth1' or _depth == 'depth2':
+                        _emit_log(
+                            f"Crawling with {_depth}...", 'step'
+                        )
+                        extraction_result = web_extractor.crawl_with_depth(
+                            url=_url,
+                            depth=_depth,
                             description=_description,
                             tenant_id=tenant_id,
                             user_id=user_id,
@@ -924,7 +1010,8 @@ def trigger_web_crawl():
                         'step'
                     )
                     _process_web_content_async(
-                        _app, _db, data_source_id, document
+                        _app, _db, data_source_id, document,
+                        user_id=user_id
                     )
 
                     _emit_log(
@@ -1313,15 +1400,37 @@ def get_data_source_status(data_source_id):
     return jsonify(_format_data_source_response(data_source)), 200
 
 
-def _process_web_content_async(app, db, data_source_id, document):
+def _process_web_content_async(app, db, data_source_id, document, user_id=None):
     """Process extracted web content through the AI pipeline in a background thread."""
     from threading import Thread
 
     def process_content():
         with app.app_context():
             try:
-                print(f"🚀 [BG-PRINT] THREAD STARTED for data source {data_source_id}")
                 current_app.logger.info(f"🚀 [BG-FIRST] THREAD STARTED for data source {data_source_id}")
+
+                # Helper: emit crawl log via WebSocket and persist latest message
+                def _emit_bg_log(message, level='info'):
+                    try:
+                        socketio = getattr(current_app, 'socketio', None)
+                        if socketio:
+                            room = f"user_{user_id}" if user_id else f"tenant_{data_source.tenant_id}"
+                            socketio.emit('crawl_log', {
+                                'data_source_id': data_source_id,
+                                'message': message,
+                                'level': level,
+                                'timestamp': datetime.utcnow().isoformat()
+                            }, room=room, namespace='/')
+                        # Persist latest message in meta_data so HTTP polling can see it
+                        ds = DataSource.query.get(data_source_id)
+                        if ds and ds.status not in ('completed', 'failed', 'deleted'):
+                            ds.meta_data = {
+                                **(ds.meta_data or {}),
+                                'progress_message': message
+                            }
+                            db.session.commit()
+                    except Exception:
+                        pass
 
                 # STEP 1: Check the incoming document object immediately
                 print(f"🔍 [BG-PRINT] STEP 1: Checking document object.")
@@ -1347,24 +1456,34 @@ def _process_web_content_async(app, db, data_source_id, document):
                     print(f"❌ [BG-PRINT] FAILED: DataSource {data_source_id} not found in database.")
                     current_app.logger.error(f"Background task failed: DataSource {data_source_id} not found.")
                     return
+                if data_source.status == 'deleted':
+                    current_app.logger.info(f"Background task cancelled: DataSource {data_source_id} was deleted.")
+                    return
                 data_source.status = 'processing'
+                data_source.meta_data = {
+                    **(data_source.meta_data or {}),
+                    'progress_message': 'Processing content...'
+                }
                 db.session.commit()
                 from ..services import text_cleaner_service, processing_service, embedding_service
                 import uuid
 
                 # STEP 2: Text Cleaning
                 print("🔍 [BG-PRINT] STEP 2: Cleaning text.")
+                _emit_bg_log("Cleaning extracted text...", 'step')
                 cleaned_text = text_cleaner_service.clean_extracted_text(document.page_content)
                 if not cleaned_text or not cleaned_text.strip():
                     print("❌ [BG-PRINT] FAILED after text cleaning: No valid content.")
                     raise ValueError("No valid content remained after cleaning")
                 print("✅ [BG-PRINT] STEP 2: Text cleaning successful.")
+                _emit_bg_log(f"Text cleaned: {len(cleaned_text)} chars", 'progress')
                 document.page_content = cleaned_text
 
                 api_keys = resolve_chatbot_api_keys(data_source.chatbot_id)
 
                 # STEP 3: Chunking
                 print("🔍 [BG-PRINT] STEP 3: Chunking document.")
+                _emit_bg_log("Splitting content into chunks...", 'step')
                 doc_id = str(uuid.uuid4())
                 chunks = processing_service.process_documents_into_chunks(
                     documents=[document],
@@ -1376,9 +1495,11 @@ def _process_web_content_async(app, db, data_source_id, document):
                     print("❌ [BG-PRINT] FAILED after chunking: No chunks returned.")
                     raise ValueError("Document chunking returned no chunks")
                 print(f"✅ [BG-PRINT] STEP 3: Chunking successful. {len(chunks)} chunks created.")
+                _emit_bg_log(f"Content split into {len(chunks)} chunks", 'progress')
 
                 # STEP 4: Embedding Generation
                 print("🔍 [BG-PRINT] STEP 4: Generating embeddings.")
+                _emit_bg_log("Generating embeddings...", 'step')
                 chunk_texts = [chunk.page_content for chunk in chunks if chunk and chunk.page_content]
                 if not chunk_texts:
                     print("❌ [BG-PRINT] FAILED before embeddings: No valid chunk texts.")
@@ -1389,6 +1510,7 @@ def _process_web_content_async(app, db, data_source_id, document):
                     print("❌ [BG-PRINT] FAILED after embeddings: No results returned.")
                     raise ValueError("Embedding service returned no results")
                 print("✅ [BG-PRINT] STEP 4: Embedding generation successful.")
+                _emit_bg_log(f"Generated embeddings for {len(embedding_results.get('embeddings', []))} chunks", 'progress')
 
                 # STEP 5: Store results
                 processed_chunks = []
@@ -1437,6 +1559,7 @@ def _process_web_content_async(app, db, data_source_id, document):
                         if vectors_to_store:
                             # Pass embed_provider so add_vectors stores in the correct column
                             vector_service.add_vectors(vectors_to_store, provider=embed_provider)
+                            _emit_bg_log(f"Stored {len(vectors_to_store)} vectors in database", 'progress')
                             current_app.logger.info(f"💾 [BG] Stored {len(vectors_to_store)} vectors in vector database (provider={embed_provider})")
 
                     except Exception as e:
@@ -1455,15 +1578,13 @@ def _process_web_content_async(app, db, data_source_id, document):
                 db.session.commit()
 
                 current_app.logger.info(f"✅ [BG] Web content processing completed for data source {data_source_id}")
+                _emit_bg_log("Processing complete!", 'step')
 
                 # Send WebSocket notification for completion
                 try:
                     socketio = getattr(current_app, 'socketio', None)
                     if socketio and data_source and data_source.chatbot_id:
-                        from ..models import Chatbot, User
-                        chatbot = Chatbot.query.get(data_source.chatbot_id)
-                        owner = User.query.get(chatbot.user_id) if chatbot else None
-                        room = f"user_{owner.id}" if owner else f"tenant_{data_source.tenant_id}"
+                        room = f"user_{user_id}" if user_id else f"tenant_{data_source.tenant_id}"
                         socketio.emit('crawl_completed', {
                             'data_source_id': data_source_id,
                             'chatbot_id': data_source.chatbot_id,
@@ -1498,14 +1619,15 @@ def _process_web_content_async(app, db, data_source_id, document):
                         try:
                             socketio = getattr(current_app, 'socketio', None)
                             if socketio and data_source.chatbot_id:
+                                room = f"user_{user_id}" if user_id else f"tenant_{data_source.tenant_id}"
                                 socketio.emit('crawl_failed', {
                                     'data_source_id': data_source_id,
                                     'chatbot_id': data_source.chatbot_id,
                                     'status': 'failed',
                                     'message': f'Failed to crawl {data_source.source_name}: {str(e)[:100]}',
                                     'error': str(e)
-                                }, room=f"user_{data_source.user_id}", namespace='/')
-                                current_app.logger.info(f"📡 [BG] Sent WebSocket crawl_failed notification to user_{data_source.user_id}")
+                                }, room=room, namespace='/')
+                                current_app.logger.info(f"📡 [BG] Sent WebSocket crawl_failed notification to {room}")
                         except Exception as ws_error:
                             current_app.logger.warning(f"⚠️ [BG] Failed to send WebSocket notification: {ws_error}")
                         current_app.logger.info(f"✅ [BG] Updated data source {data_source_id} status to failed")
@@ -1522,12 +1644,17 @@ def _process_web_content_async(app, db, data_source_id, document):
     thread.start()
 
 
-def _run_ai_processing(app, db, data_source_id):
+def _run_ai_processing(app, db, data_source_id, user_id=None):
     """Helper function to run the AI pipeline in a background thread."""
     # Import required modules
     import os
     from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
     from ..services import embedding_service, text_cleaner_service, processing_service
+
+    def _check_cancelled():
+        """Check if the data source has been deleted/cancelled."""
+        ds = DataSource.query.get(data_source_id)
+        return ds is None or ds.status == 'deleted'
 
     def _persist_progress(stage, **fields):
         """Write progress to the DataSource row + push a WebSocket event.
@@ -1535,6 +1662,8 @@ def _run_ai_processing(app, db, data_source_id):
         This is the only place the DataSource row is mutated during
         processing, so the frontend always sees a consistent state.
         """
+        if _check_cancelled():
+            return
         try:
             ds = DataSource.query.get(data_source_id)
             if not ds:
@@ -1562,7 +1691,11 @@ def _run_ai_processing(app, db, data_source_id):
                     'updated_at': datetime.utcnow().isoformat(),
                     **fields,
                 }
-                socketio.emit('datasource_progress', payload, namespace='/')
+                room = f"user_{user_id}" if user_id else None
+                kwargs = {'namespace': '/'}
+                if room:
+                    kwargs['room'] = room
+                socketio.emit('datasource_progress', payload, **kwargs)
         except Exception as exc:
             app.logger.debug(f"[BG] websocket emit failed (non-fatal): {exc}")
 

@@ -1367,6 +1367,301 @@ URL: {url}
 
     # ==================== FULL SITE CRAWLING METHODS ====================
 
+    # ===================================================================
+    # Page count estimation (2026-06-16 addition)
+    # ===================================================================
+
+    def estimate_page_count(self, url: str) -> int:
+        """
+        Quickly estimate the number of pages on a website.
+        Uses sitemap first (fastest, ~1-2 HTTP calls).
+        Falls back to homepage link counting.
+        Returns an approximate count, minimum 1.
+        """
+        parsed = urlparse(url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        current_app.logger.info(f"📊 Estimating page count for {base_domain}")
+
+        # Strategy 1: Count sitemap entries (fastest)
+        try:
+            sitemap_urls = self._get_sitemap_urls(base_domain)
+            if sitemap_urls:
+                count = len(sitemap_urls)
+                current_app.logger.info(
+                    f"📊 Page count via sitemap: {count} pages"
+                )
+                return count
+        except Exception:
+            pass
+
+        # Strategy 2: Fetch homepage and count internal links
+        try:
+            links = self._extract_internal_links_robust(url, base_domain)
+            count = max(len(links), 1)
+            current_app.logger.info(
+                f"📊 Page count via homepage links: ~{count} pages"
+            )
+            return count
+        except Exception:
+            pass
+
+        return 1
+
+    # ===================================================================
+    # Depth-limited crawl (2026-06-16 addition)
+    # ===================================================================
+
+    def crawl_with_depth(self, url: str, depth: str = 'depth1',
+                         description: str = "", tenant_id: str = None,
+                         user_id: str = None, progress_callback=None,
+                         model_name: str = None,
+                         model_provider: str = None) -> Dict[str, Any]:
+        """
+        Crawl a specific page and linked sub-pages under the same path prefix.
+
+        * depth='depth1': the seed page + directly linked pages (~20 max)
+        * depth='depth2': up to 2 hops deep (~50 max)
+        """
+        max_pages = {'depth1': 20, 'depth2': 50}.get(depth, 10)
+        max_depth = {'depth1': 1, 'depth2': 2}.get(depth, 1)
+
+        current_app.logger.info(
+            f"🕷️ DEPTH CRAWL ({depth}, max={max_pages}p, "
+            f"depth={max_depth}) for: {url}"
+        )
+
+        # Reset crawling state
+        self.crawled_urls.clear()
+        self.failed_urls.clear()
+        self.url_queue.clear()
+        self.extracted_content.clear()
+        self.progress_callback = progress_callback
+        self._structure_model_name = model_name
+        self._structure_model_provider = model_provider
+        self.max_pages = max_pages
+
+        parsed = urlparse(url)
+        base_domain = f"{parsed.scheme}://{parsed.netloc}"
+        domain_name = parsed.netloc
+        # The path prefix under which we stay (e.g. /docs/guides/)
+        path_prefix = parsed.path.rstrip('/')
+
+        try:
+            # ── Discover URLs ──────────────────────────────────────────
+            discovered: List[Dict[str, Any]] = []
+            seen: Set[str] = set()
+
+            # Seed URL is always first
+            discovered.append(
+                {'url': url, 'depth': 0, 'source': 'seed', 'priority': 0}
+            )
+            seen.add(url)
+
+            # Only follow links whose path starts with the same prefix
+            def _is_under_same_prefix(link: str) -> bool:
+                lp = urlparse(link).path.rstrip('/') or '/'
+                if not lp.startswith(path_prefix):
+                    return False
+                return True
+
+            # ── Discovery phase ─────────────────────────────────────
+            # Strategy 1: sitemap (JS-agnostic, catches all pages)
+            # Walk sitemap index one sub-sitemap at a time so we can
+            # stop early once we have enough matching URLs.
+            def _match_or_stop(sm_url: str) -> bool:
+                if _is_under_same_prefix(sm_url) and sm_url not in seen:
+                    discovered.append(
+                        {'url': sm_url, 'depth': 1,
+                         'source': 'sitemap', 'priority': 1}
+                    )
+                    seen.add(sm_url)
+                return len(discovered) >= max_pages
+
+            sitemap_found = False
+            try:
+                # Quick fetch of robots.txt for Sitemap: directives
+                robots = self._fetch_url(
+                    f"{base_domain}/robots.txt", timeout=5
+                )
+                sitemap_refs = []
+                if robots and robots.get('content'):
+                    sitemap_refs = re.findall(
+                        r'(?im)^\s*Sitemap\s*:\s*(\S+)',
+                        robots['content']
+                    )
+                # Also try common sitemap paths
+                for path in self.SITEMAP_PATHS[:3]:
+                    sitemap_refs.append(f"{base_domain}{path}")
+
+                for ref in sitemap_refs:
+                    resp = self._fetch_url(ref.strip(), timeout=8)
+                    if not resp or not resp.get('content'):
+                        continue
+                    # Parse sitemap XML
+                    locs = re.findall(
+                        r'<loc[^>]*>(.*?)</loc>',
+                        resp['content'],
+                        flags=re.IGNORECASE | re.DOTALL
+                    )
+                    # Check if it's a sitemap index
+                    is_index = '<sitemap' in resp['content'].lower()
+                    if is_index:
+                        # Process sub-sitemaps one at a time
+                        for sub_loc in locs:
+                            sub = self._fetch_url(
+                                sub_loc.strip(), timeout=8
+                            )
+                            if not sub or not sub.get('content'):
+                                continue
+                            sub_urls = re.findall(
+                                r'<loc[^>]*>(.*?)</loc>',
+                                sub['content'],
+                                flags=re.IGNORECASE | re.DOTALL
+                            )
+                            for u in sub_urls:
+                                if _match_or_stop(u.strip()):
+                                    break
+                            if len(discovered) >= max_pages:
+                                break
+                    else:
+                        for u in locs:
+                            if _match_or_stop(u.strip()):
+                                break
+                    if len(discovered) >= max_pages:
+                        break
+                    sitemap_found = True
+
+                if sitemap_found:
+                    current_app.logger.info(
+                        f"📋 Sitemap yielded {len(discovered) - 1} "
+                        f"matching URLs for {path_prefix}"
+                    )
+            except Exception as e:
+                current_app.logger.warning(
+                    f"⚠️ Sitemap discovery failed: {e}"
+                )
+
+            # Strategy 2: inline links (supplement for any sitemap missed)
+            if len(discovered) < max_pages:
+                links = self._extract_internal_links_robust(url, base_domain)
+                for link in links:
+                    if _is_under_same_prefix(link) and link not in seen:
+                        discovered.append(
+                            {'url': link, 'depth': 1, 'source': 'linked',
+                             'priority': 1}
+                        )
+                        seen.add(link)
+                        if len(discovered) >= max_pages:
+                            break
+
+            # Depth 2: grandchildren
+            if max_depth >= 2:
+                depth1_items = [d for d in discovered if d['depth'] == 1]
+                for d1 in depth1_items[:5]:  # cap source expansion
+                    deeper = self._extract_internal_links_robust(
+                        d1['url'], base_domain
+                    )
+                    for link in deeper:
+                        if _is_under_same_prefix(link) and link not in seen:
+                            discovered.append(
+                                {'url': link, 'depth': 2,
+                                 'source': 'deep', 'priority': 2}
+                            )
+                            seen.add(link)
+                            if len(discovered) >= max_pages:
+                                break
+                    if len(discovered) >= max_pages:
+                        break
+
+            current_app.logger.info(
+                f"🔍 Discovered {len(discovered)} URLs for depth crawl"
+            )
+
+            # ── Queue & crawl ──────────────────────────────────────────
+            for url_info in discovered:
+                self.url_queue.append(url_info)
+            self.total_discovered_pages = len(discovered)
+            self._process_crawl_queue(base_domain)
+
+            # ── Combine results ────────────────────────────────────────
+            total_crawled = len(self.crawled_urls)
+            total_extracted = len(self.extracted_content)
+            combined_content = None
+
+            if total_extracted > 0:
+                # Single page: return raw content, no AI structuring
+                if total_extracted == 1:
+                    combined_content = self.extracted_content[0]['content']
+                    current_app.logger.info(
+                        f"✅ Single page extracted, using raw content "
+                        f"({len(combined_content)} chars)"
+                    )
+                else:
+                    # Depth crawl: combine raw content, NO AI structuring
+                    # to preserve each page's original content
+                    sorted_content = sorted(
+                        self.extracted_content, key=lambda x: x['url']
+                    )
+                    combined_parts = []
+                    combined_parts.append(
+                        f"# {domain_name} - Website Content"
+                    )
+                    combined_parts.append(
+                        f"*Crawled from: {url}*"
+                    )
+                    combined_parts.append(
+                        f"*Pages extracted: {len(sorted_content)}*"
+                    )
+                    combined_parts.append("")
+                    for i, item in enumerate(sorted_content, 1):
+                        combined_parts.append(
+                            f"\n## Page {i}: {item['url']}"
+                        )
+                        combined_parts.append(item['content'])
+                        combined_parts.append("")
+                    combined_content = "\n".join(combined_parts)
+
+            if total_extracted == 0:
+                return {
+                    'success': False,
+                    'error': 'no_content_extracted',
+                    'message':
+                        'Depth crawl completed but no content could be '
+                        'extracted.',
+                    'stats': {
+                        'pages_crawled': total_crawled,
+                        'pages_failed': len(self.failed_urls),
+                        'content_pieces': total_extracted,
+                    }
+                }
+
+            return {
+                'success': True,
+                'content': combined_content,
+                'source_url': url,
+                'extraction_method': f'depth_crawl_{depth}',
+                'message':
+                    f"Successfully extracted content from "
+                    f"{total_extracted} pages",
+                'stats': {
+                    'pages_crawled': total_crawled,
+                    'pages_failed': len(self.failed_urls),
+                    'content_pieces': total_extracted,
+                }
+            }
+
+        except Exception as e:
+            current_app.logger.error(f"❌ Depth crawl failed: {e}")
+            return {
+                'success': False,
+                'error': 'depth_crawl_failed',
+                'message': f"Depth crawl failed: {str(e)}"
+            }
+
+    # ===================================================================
+    # Multi-strategy URL discovery
+    # ===================================================================
+
     def _discover_website_urls(self, start_url: str, base_domain: str) -> List[Dict[str, Any]]:
         """
         Robust multi-strategy URL discovery (rewrite 2026-06-06).

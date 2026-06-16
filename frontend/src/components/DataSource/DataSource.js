@@ -13,7 +13,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { hasPermission } = useAuth();
-    const { socket } = useWebSocket();
+    const { socket, isConnected } = useWebSocket();
     
     const [dataSources, setDataSources] = useState([]);
     const [chatbots, setChatbots] = useState([]);
@@ -23,8 +23,14 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState({});
     const [showUrlInput, setShowUrlInput] = useState(false);
-    const [crawlUrl, setCrawlUrl] = useState('');
+    const [crawlTab, setCrawlTab] = useState('specific'); // 'specific' | 'full'
+    const [specificUrls, setSpecificUrls] = useState([{ url: '', depth: 'single' }]);
+    const [fullUrl, setFullUrl] = useState('');
     const [crawling, setCrawling] = useState(false);
+    const [crawlQueueIndex, setCrawlQueueIndex] = useState(-1);
+    const [crawlQueueTotal, setCrawlQueueTotal] = useState(0);
+    const [pageCountError, setPageCountError] = useState('');
+    const [estimatingPageCount, setEstimatingPageCount] = useState(false);
     const [pollingSources, setPollingSources] = useState(new Set());
     const [crawlProgress, setCrawlProgress] = useState({}); // Track progress by data_source_id
     const [embeddingProgress, setEmbeddingProgress] = useState({}); // Rate-limit-aware progress by data_source_id
@@ -56,8 +62,8 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
       if (pollingSources.size === 0) return;
 
       const interval = setInterval(async () => {
-        try {
-          for (const sourceId of pollingSources) {
+        for (const sourceId of pollingSources) {
+          try {
             const status = await dataSourceService.getDataSourceStatus(sourceId);
             if (status.status === 'completed') {
               setPollingSources(prev => {
@@ -65,7 +71,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                 newSet.delete(sourceId);
                 return newSet;
               });
-              // Refresh list and redirect to knowledge base
+              // Full load (with loading indicator) on completion
               await loadDataSources();
               setTimeout(() => navigate('/knowledge-base'), 1500);
               return;
@@ -76,11 +82,20 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                 return newSet;
               });
               await loadDataSources();
+              return;
             }
+          } catch (error) {
+            console.error(`Error polling source ${sourceId}:`, error);
+            // Remove stale source (e.g. 404 — deleted) so polling stops
+            setPollingSources(prev => {
+              const newSet = new Set(prev);
+              newSet.delete(sourceId);
+              return newSet;
+            });
           }
-        } catch (error) {
-          console.error('Error polling status:', error);
         }
+        // Silent refresh for meta_data updates (progress_message, etc.)
+        await refreshDataSources();
       }, 3000);
 
       return () => clearInterval(interval);
@@ -214,7 +229,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
         socket.off('datasource_progress', handleDatasourceProgress);
         socket.off('crawl_log', handleCrawlLog);
       };
-    }, [socket]);
+    }, [socket, isConnected]);
 
     // Tick down the rate-limit countdown every second so the user sees
     // a live "resets in 32s" message while the embedding thread is
@@ -260,21 +275,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
         
         const response = await dataSourceService.getDataSources(filters);
         const allSources = response.data_sources || [];
-        
-        // Only show active sources (completed ones are in Knowledge Base)
-        const activeSources = allSources.filter(s => 
-          s.status === 'pending' || s.status === 'processing' || s.status === 'uploading' || s.status === 'crawling' || s.status === 'failed'
-        );
-        setDataSources(activeSources);
-        
-        // Start polling for processing sources
-        const processingSources = activeSources
-          .filter(source => source.status === 'processing' || source.status === 'pending' || source.status === 'uploading' || source.status === 'crawling')
-          .map(source => source.id);
-        
-        if (processingSources.length > 0) {
-          setPollingSources(new Set(processingSources));
-        }
+        setDataSources(allSources.filter(s =>
+          ['pending', 'processing', 'uploading', 'crawling', 'failed'].includes(s.status)
+        ));
       } catch (err) {
         if (err.message === 'Authentication required') {
           window.location.href = '/login';
@@ -284,6 +287,21 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
         console.error('Error loading data sources:', err);
       } finally {
         setLoading(false);
+      }
+    };
+
+    // Silent refresh — does NOT set loading=true, avoids UI flicker
+    const refreshDataSources = async () => {
+      try {
+        const filters = { per_page: 500 };
+        if (selectedChatbot) filters.chatbot_id = selectedChatbot;
+        const response = await dataSourceService.getDataSources(filters);
+        const allSources = response.data_sources || [];
+        setDataSources(allSources.filter(s =>
+          ['pending', 'processing', 'uploading', 'crawling', 'failed'].includes(s.status)
+        ));
+      } catch (err) {
+        // Silently ignore polling errors
       }
     };
 
@@ -321,7 +339,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
         const result = await dataSourceService.uploadFiles(files, uploadOptions, onProgress);
         
         // Refresh data sources list
-        await loadDataSources();
+        await refreshDataSources();
         
         // Clear file input
         if (fileInputRef.current) {
@@ -340,9 +358,17 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
     };
 
     const handleUrlCrawl = async () => {
-      if (!crawlUrl.trim()) return;
+      if (crawlTab === 'specific') {
+        const validEntries = specificUrls.filter(u => u.url.trim());
+        if (validEntries.length === 0) return;
+        await crawlSpecificUrls(validEntries);
+      } else {
+        if (!fullUrl.trim()) return;
+        await crawlFullSite(fullUrl.trim());
+      }
+    };
 
-      // Check if chatbot is selected
+    const crawlSpecificUrls = async (entries) => {
       if (!selectedChatbot) {
         setError('Please select a chatbot first before crawling a website');
         alert('⚠️ Please select a chatbot first\n\nYou must choose which chatbot should use this content before crawling.');
@@ -352,30 +378,136 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
       try {
         setCrawling(true);
         setError(null);
+        setCrawlQueueTotal(entries.length);
+        setCrawlQueueIndex(0);
 
-        const crawlOptions = {};
-        if (selectedChatbot) {
-          crawlOptions.chatbot_id = selectedChatbot;
-          crawlOptions.description = `Web content for ${chatbots.find(c => c.id === selectedChatbot)?.name || 'chatbot'}`;
+        for (let i = 0; i < entries.length; i++) {
+          const { url, depth } = entries[i];
+          setCrawlQueueIndex(i + 1);
+
+          const crawlOptions = {
+            chatbot_id: selectedChatbot,
+            crawl_type: 'specific',
+            depth: depth,
+            description: `Web content for ${chatbots.find(c => c.id === selectedChatbot)?.name || 'chatbot'}`,
+          };
+
+          const result = await dataSourceService.crawlWebsite(url, crawlOptions);
+
+          // Refresh sources list (silent, no loading flash)
+          await refreshDataSources();
+
+          if (result && result.data_source_id) {
+            setPollingSources(prev => new Set([...prev, result.data_source_id]));
+          }
         }
-        
-        const result = await dataSourceService.crawlWebsite(crawlUrl.trim(), crawlOptions);
-        
-        // Refresh data sources list
-        await loadDataSources();
-        
-        setCrawlUrl('');
+
+        setSpecificUrls([{ url: '', depth: 'single' }]);
         setShowUrlInput(false);
-        // No alert needed — progress bar handles UX. Add to polling fallback.
-        if (result && result.data_source_id) {
-          setPollingSources(prev => new Set([...prev, result.data_source_id]));
-        }
+        setCrawlQueueIndex(-1);
+        setCrawlQueueTotal(0);
       } catch (err) {
         setError(err.message);
         console.error('Error starting web crawl:', err);
       } finally {
         setCrawling(false);
       }
+    };
+
+    const crawlFullSite = async (url) => {
+      if (!selectedChatbot) {
+        setError('Please select a chatbot first before crawling a website');
+        alert('⚠️ Please select a chatbot first\n\nYou must choose which chatbot should use this content before crawling.');
+        return;
+      }
+
+      try {
+        setCrawling(true);
+        setError(null);
+        setPageCountError('');
+        setEstimatingPageCount(true);
+
+        const crawlOptions = {
+          chatbot_id: selectedChatbot,
+          crawl_type: 'full',
+          description: `Web content for ${chatbots.find(c => c.id === selectedChatbot)?.name || 'chatbot'}`,
+        };
+
+        const result = await dataSourceService.crawlWebsite(url, crawlOptions);
+
+        await refreshDataSources();
+
+        setEstimatingPageCount(false);
+        setFullUrl('');
+        setShowUrlInput(false);
+
+        if (result && result.data_source_id) {
+          setPollingSources(prev => new Set([...prev, result.data_source_id]));
+        }
+      } catch (err) {
+        setEstimatingPageCount(false);
+        const msg = err.message || '';
+        // Check if it's a page limit error
+        if (msg.toLowerCase().includes('page limit') || msg.toLowerCase().includes('250')) {
+          setPageCountError(msg);
+          alert(`⚠️ ${msg}`);
+        } else {
+          setError(msg);
+        }
+        console.error('Error starting web crawl:', err);
+      } finally {
+        setCrawling(false);
+        setEstimatingPageCount(false);
+      }
+    };
+
+    const addSpecificUrl = () => {
+      setSpecificUrls(prev => [...prev, { url: '', depth: 'single' }]);
+    };
+
+    const removeSpecificUrl = (index) => {
+      if (specificUrls.length <= 1) return;
+      setSpecificUrls(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const updateSpecificUrl = (index, value) => {
+      setSpecificUrls(prev => {
+        const next = [...prev];
+        next[index] = { ...next[index], url: value };
+        return next;
+      });
+    };
+
+    const updateSpecificDepth = (index, depth) => {
+      setSpecificUrls(prev => {
+        const next = [...prev];
+        next[index] = { ...next[index], depth };
+        return next;
+      });
+    };
+
+    const isValidRootUrl = (url) => {
+      try {
+        const u = new URL(url);
+        const path = u.pathname.replace(/\/$/, '');
+        return !path || path === '';
+      } catch {
+        return false;
+      }
+    };
+
+    const DEPTH_INFO = {
+      single: 'Scrape only this single page. Best for specific articles or documentation pages.',
+      depth1: 'Scrape this page plus all directly linked pages under the same path (up to 20 pages). Good for guides with multiple sub-pages.',
+      depth2: 'Scrape this page plus linked pages and their sub-links under the same path (up to 50 pages). Most thorough option for section-level crawling.',
+    };
+
+    const isFormValid = () => {
+      if (!selectedChatbot) return false;
+      if (crawlTab === 'specific') {
+        return specificUrls.some(e => e.url.trim());
+      }
+      return fullUrl.trim() && isValidRootUrl(fullUrl.trim());
     };
 
     const getSourceIcon = (sourceType) => {
@@ -534,31 +666,183 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                   {showUrlInput && (
                     <div className="url-input-section">
                       <h3>🌐 Add Website Content</h3>
-                      <div className="url-input-form">
-                        <input
-                          type="url"
-                          value={crawlUrl}
-                          onChange={(e) => setCrawlUrl(e.target.value)}
-                          placeholder={selectedChatbot ? "https://example.com/docs" : "Select a chatbot to enable crawling"}
-                          className="url-input"
-                          disabled={crawling || !selectedChatbot}
-                        />
-                        <button 
-                          onClick={handleUrlCrawl}
-                          disabled={crawling || !crawlUrl.trim() || !selectedChatbot}
-                          className="crawl-button"
+
+                      {/* Tab Switcher */}
+                      <div className="crawl-tabs">
+                        <button
+                          className={`crawl-tab ${crawlTab === 'specific' ? 'active' : ''}`}
+                          onClick={() => setCrawlTab('specific')}
+                          disabled={crawling}
                         >
-                          {crawling ? 'Crawling...' : 'Start Crawl'}
+                          Specific Pages
+                        </button>
+                        <button
+                          className={`crawl-tab ${crawlTab === 'full' ? 'active' : ''}`}
+                          onClick={() => setCrawlTab('full')}
+                          disabled={crawling}
+                        >
+                          Full Crawl
                         </button>
                       </div>
-                      {!selectedChatbot && (
-                        <p className="help-text required-text">
-                          Please select a chatbot from the dropdown above to enable website crawling.
-                        </p>
+
+                      {/* ── Specific Pages Tab ──────────────────────── */}
+                      {crawlTab === 'specific' && (
+                        <div className="crawl-tab-content">
+                          <div className="url-input-form">
+                            <div className="url-input-list">
+                              {specificUrls.map((entry, index) => (
+                                <div key={index} className="specific-url-block">
+                                  <div className="url-input-row">
+                                    <input
+                                      type="url"
+                                      value={entry.url}
+                                      onChange={(e) => updateSpecificUrl(index, e.target.value)}
+                                      placeholder={selectedChatbot ? "https://example.com/docs/guide" : "Select a chatbot to enable crawling"}
+                                      className="url-input"
+                                      disabled={crawling || !selectedChatbot}
+                                    />
+                                    {specificUrls.length > 1 && (
+                                      <button
+                                        type="button"
+                                        className="url-remove-btn"
+                                        onClick={() => removeSpecificUrl(index)}
+                                        disabled={crawling}
+                                        title="Remove this URL"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                  {/* Depth radio group */}
+                                  <div className="depth-radio-group">
+                                    {['single', 'depth1', 'depth2'].map(d => (
+                                      <label key={d} className="depth-radio-label">
+                                        <input
+                                          type="radio"
+                                          name={`depth-${index}`}
+                                          value={d}
+                                          checked={entry.depth === d}
+                                          onChange={() => updateSpecificDepth(index, d)}
+                                          disabled={crawling || !selectedChatbot}
+                                        />
+                                        <span className="depth-radio-text">
+                                          {d === 'single' ? 'Single page' : d === 'depth1' ? 'Depth 1' : 'Depth 2'}
+                                        </span>
+                                        <span
+                                          className="depth-info-icon"
+                                          title={DEPTH_INFO[d]}
+                                        >ℹ️</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                            <div className="url-input-actions">
+                              <button
+                                type="button"
+                                onClick={addSpecificUrl}
+                                disabled={crawling || !selectedChatbot}
+                                className="add-url-button"
+                              >
+                                + Add Another URL
+                              </button>
+                              <button 
+                                onClick={handleUrlCrawl}
+                                disabled={crawling || !isFormValid() || !selectedChatbot}
+                                className="crawl-button"
+                              >
+                                {crawling ? (
+                                  <span>🕷️ Crawling {crawlQueueIndex}/{crawlQueueTotal}...</span>
+                                ) : (
+                                  <span>🕷️ Start Crawl</span>
+                                )}
+                              </button>
+                            </div>
+                            {crawlQueueTotal > 1 && crawling && (
+                              <div className="crawl-queue-progress">
+                                <div className="crawl-queue-bar">
+                                  <div
+                                    className="crawl-queue-fill"
+                                    style={{ width: `${(crawlQueueIndex / crawlQueueTotal) * 100}%` }}
+                                  />
+                                </div>
+                                <span className="crawl-queue-text">
+                                  Processing URL {crawlQueueIndex} of {crawlQueueTotal}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <p className="help-text">
+                            Enter one or more specific page URLs. Choose the crawl depth for each URL.
+                          </p>
+                          {!selectedChatbot && (
+                            <p className="help-text required-text">
+                              Please select a chatbot from the dropdown above to enable website crawling.
+                            </p>
+                          )}
+                        </div>
                       )}
-                      <p className="help-text">
-                        Enter a website URL to extract and process its content for your chatbot training.
-                      </p>
+
+                      {/* ── Full Crawl Tab ──────────────────────────── */}
+                      {crawlTab === 'full' && (
+                        <div className="crawl-tab-content">
+                          <div className="url-input-form">
+                            <div className="url-input-row">
+                              <input
+                                type="url"
+                                value={fullUrl}
+                                onChange={(e) => {
+                                  setFullUrl(e.target.value);
+                                  setPageCountError('');
+                                }}
+                                placeholder={selectedChatbot ? "https://example.com" : "Select a chatbot to enable crawling"}
+                                className={`url-input ${pageCountError ? 'input-error' : ''}`}
+                                disabled={crawling || !selectedChatbot}
+                              />
+                            </div>
+                            {estimatingPageCount && (
+                              <div className="page-count-estimating">
+                                🔍 Checking website page count...
+                              </div>
+                            )}
+                            {pageCountError && (
+                              <div className="page-count-error">
+                                ⚠️ {pageCountError}
+                              </div>
+                            )}
+                            {fullUrl.trim() && !isValidRootUrl(fullUrl.trim()) && (
+                              <div className="url-validation-warning">
+                                ℹ️ Full crawl works best with a root URL (e.g. https://example.com).
+                                For specific paths, use the "Specific Pages" tab.
+                              </div>
+                            )}
+                            <div className="url-input-actions">
+                              <button 
+                                onClick={handleUrlCrawl}
+                                disabled={crawling || !isFormValid() || !selectedChatbot}
+                                className="crawl-button full-crawl-btn"
+                              >
+                                {crawling ? (
+                                  <span>🕷️ Crawling...</span>
+                                ) : (
+                                  <span>🕷️ Start Full Crawl</span>
+                                )}
+                              </button>
+                            </div>
+                            <div className="full-crawl-info">
+                              <p>📋 Full crawl will scan the entire website and extract all pages (max 250 pages).</p>
+                              <p>⏱️ This may take a few minutes depending on the website size.</p>
+                            </div>
+                          </div>
+                          {!selectedChatbot && (
+                            <p className="help-text required-text">
+                              Please select a chatbot from the dropdown above to enable website crawling.
+                            </p>
+                          )}
+                        </div>
+                      )}
+
                     </div>
                   )}
                 </>
@@ -732,7 +1016,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                             </div>
                           )}
                           {/* Real-time crawl log panel */}
-                          {crawlLogs[source.id] && crawlLogs[source.id].length > 0 && source.status === 'crawling' && (
+                          {crawlLogs[source.id] && crawlLogs[source.id].length > 0 && source.status !== 'completed' && source.status !== 'failed' && (
                             <div className="crawl-log-panel">
                               {crawlLogs[source.id].slice(-8).map((log, idx) => (
                                 <div key={idx} className={`crawl-log-entry crawl-log-${log.level}`}>
@@ -742,6 +1026,14 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                                   <span className="crawl-log-msg">{log.message}</span>
                                 </div>
                               ))}
+                            </div>
+                          )}
+                          {/* Fallback: show progress_message from meta_data when no live logs */}
+                          {(!crawlLogs[source.id] || crawlLogs[source.id].length === 0) && 
+                            source.metadata?.progress_message && 
+                            source.status !== 'completed' && source.status !== 'failed' && (
+                            <div className="progress-message-bar">
+                              ⚙️ {source.metadata.progress_message}
                             </div>
                           )}
                     </div>
@@ -773,10 +1065,14 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
                           <button 
                             className="action-button danger"
                             onClick={async () => {
-                              if (window.confirm(`Delete "${source.source_name}"?\n\nThis will remove all processed content and cannot be undone.`)) {
+                              const isProcessing = source.status === 'processing' || source.status === 'crawling';
+                              const msg = isProcessing
+                                ? `Cancel and delete "${source.source_name}"?\n\nThis data source is still processing. Deleting will stop processing and remove all content.`
+                                : `Delete "${source.source_name}"?\n\nThis will remove all processed content and cannot be undone.`;
+                              if (window.confirm(msg)) {
                                 try {
                                   await dataSourceService.deleteDataSource(source.id);
-                                  await loadDataSources();
+        await refreshDataSources();
                                   alert('Data source deleted successfully!');
                                 } catch (err) {
                                   setError(`Failed to delete: ${err.message}`);
