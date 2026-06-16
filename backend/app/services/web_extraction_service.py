@@ -97,6 +97,7 @@ class WebExtractionService:
         self.crawl_delay = 1  # Delay between requests (seconds)
         self.total_discovered_pages = 0  # Actual number of pages discovered
         self.progress_callback = None  # Callback for progress updates
+        self._sitemap_cache: Dict[str, List[str]] = {}  # domain → sitemap URLs
         self.session.headers.update({
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -164,6 +165,16 @@ class WebExtractionService:
             for url_info in discovered_urls:
                 self.url_queue.append(url_info)
 
+            # Notify frontend of discovery count
+            if self.progress_callback:
+                self.progress_callback({
+                    'pages_crawled': 0,
+                    'total_pages': len(discovered_urls),
+                    'progress_percent': 0,
+                    'pages_failed': 0,
+                    'current_page': f'Found {len(discovered_urls)} pages to crawl'
+                })
+
             # Step 3: Process crawling queue with threading (with error handling)
             crawl_error = None
             try:
@@ -185,15 +196,28 @@ class WebExtractionService:
             # CRITICAL: Always try to combine extracted content, even if partial
             combined_content = None
             if total_extracted > 0:
-                try:
-                    combined_content = self._combine_extracted_content(
-                        start_url, domain_name,
-                        model_name=self._structure_model_name,
-                        model_provider=self._structure_model_provider
+                # Full crawl: combine raw content, NO AI structuring
+                sorted_content = sorted(
+                    self.extracted_content, key=lambda x: x['url']
+                )
+                combined_parts = []
+                combined_parts.append(
+                    f"# {domain_name} - Website Content"
+                )
+                combined_parts.append(
+                    f"*Crawled from: {start_url}*"
+                )
+                combined_parts.append(
+                    f"*Pages extracted: {len(sorted_content)}*"
+                )
+                combined_parts.append("")
+                for i, item in enumerate(sorted_content, 1):
+                    combined_parts.append(
+                        f"\n## Page {i}: {item['url']}"
                     )
-                    current_app.logger.info(f"✅ Successfully combined {total_extracted} pieces of extracted content")
-                except Exception as combine_error:
-                    current_app.logger.error(f"❌ Failed to combine content: {combine_error}")
+                    combined_parts.append(item['content'])
+                    combined_parts.append("")
+                combined_content = "\n".join(combined_parts)
 
             # Check if we got ANY meaningful content (partial success is still success!)
             if total_extracted == 0:
@@ -1383,16 +1407,30 @@ URL: {url}
         current_app.logger.info(f"📊 Estimating page count for {base_domain}")
 
         # Strategy 1: Count sitemap entries (fastest)
-        try:
-            sitemap_urls = self._get_sitemap_urls(base_domain)
-            if sitemap_urls:
-                count = len(sitemap_urls)
-                current_app.logger.info(
-                    f"📊 Page count via sitemap: {count} pages"
+        # Use cached sitemap URLs if already fetched
+        sitemap_urls = self._sitemap_cache.get(base_domain)
+        if sitemap_urls is None:
+            try:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(
+                        self._get_sitemap_urls, base_domain
+                    )
+                    sitemap_urls = future.result(timeout=15)
+            except TimeoutError:
+                current_app.logger.warning(
+                    "⚠️ Sitemap discovery timed out during page count estimation"
                 )
-                return count
-        except Exception:
-            pass
+            except Exception:
+                pass
+            if sitemap_urls:
+                self._sitemap_cache[base_domain] = sitemap_urls
+
+        if sitemap_urls:
+            count = len(sitemap_urls)
+            current_app.logger.info(
+                f"📊 Page count via sitemap: {count} pages"
+            )
+            return count
 
         # Strategy 2: Fetch homepage and count internal links
         try:
@@ -1705,8 +1743,12 @@ URL: {url}
         if not start_url.endswith('/'):
             add(start_url.rstrip('/') + '/', 0, 'start', 0)
 
-        # 2. Sitemap discovery (covers robots.txt Sitemap: directive + multiple sitemaps)
-        sitemap_urls = self._get_sitemap_urls(base_domain)
+        # 2. Sitemap discovery — use cache from estimate_page_count if available
+        sitemap_urls = self._sitemap_cache.get(base_domain)
+        if sitemap_urls is None:
+            sitemap_urls = self._get_sitemap_urls(base_domain)
+            if sitemap_urls:
+                self._sitemap_cache[base_domain] = sitemap_urls
         for url in sitemap_urls:
             add(url, 0, 'sitemap', 1)
 

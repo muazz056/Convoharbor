@@ -775,30 +775,6 @@ def trigger_web_crawl():
     # Store description for background thread
     _description = data.get('description', '')
 
-    # For full crawl: estimate page count first; reject if > 250
-    if _full_crawl:
-        try:
-            from ..services.web_extraction_service import WebExtractionService
-            estimator = WebExtractionService()
-            page_count = estimator.estimate_page_count(url)
-            current_app.logger.info(
-                f"📊 Estimated page count for {url}: {page_count}"
-            )
-            if page_count > 250:
-                return jsonify({
-                    'error': 'Page limit exceeded',
-                    'message': (
-                        f"This website has approximately {page_count} pages, "
-                        f"which exceeds the maximum limit of 250 pages. "
-                        f"Full crawl is not available for websites larger "
-                        f"than 250 pages."
-                    )
-                }), 400
-        except Exception as e:
-            current_app.logger.warning(
-                f"⚠️ Page count estimation failed, proceeding anyway: {e}"
-            )
-
     try:
         crawl_job_id = str(uuid.uuid4())
         tenant_id = g.tenant_id
@@ -904,11 +880,17 @@ def trigger_web_crawl():
                             failed = progress_data.get(
                                 'pages_failed', 0
                             )
-                            _emit_log(
-                                f"Crawled {crawled}/{total} pages "
-                                f"({pct}%) - {failed} failed",
-                                'progress'
-                            )
+                            # If current_page contains a status message,
+                            # use it instead of the default progress format
+                            cp = progress_data.get('current_page', '')
+                            if cp and crawled == 0 and total > 0:
+                                _emit_log(cp, 'info')
+                            else:
+                                _emit_log(
+                                    f"Crawled {crawled}/{total} pages "
+                                    f"({pct}%) - {failed} failed",
+                                    'progress'
+                                )
                             socketio = getattr(
                                 current_app, 'socketio', None
                             )
@@ -922,6 +904,55 @@ def trigger_web_crawl():
                         except Exception as e:
                             current_app.logger.warning(
                                 f"Progress update failed: {e}"
+                            )
+
+                    # For full crawl: check page count in background
+                    if _crawl_type == 'full':
+                        _emit_log("Checking page count...", 'step')
+                        try:
+                            page_count = web_extractor.estimate_page_count(_url)
+                            if page_count > 250:
+                                _emit_log(
+                                    f"Site has ~{page_count} pages, exceeds "
+                                    f"250 page limit. Cancelling crawl.",
+                                    'error'
+                                )
+                                ds = DataSource.query.get(data_source_id)
+                                if ds:
+                                    ds.status = 'failed'
+                                    ds.meta_data = {
+                                        **(ds.meta_data or {}),
+                                        'error': (
+                                            f'Page limit exceeded: '
+                                            f'~{page_count} pages (max 250)'
+                                        ),
+                                        'failed_at': (
+                                            datetime.utcnow().isoformat()
+                                        )
+                                    }
+                                    _db.session.commit()
+                                socketio = getattr(
+                                    current_app, 'socketio', None
+                                )
+                                if socketio:
+                                    socketio.emit('crawl_failed', {
+                                        'data_source_id': data_source_id,
+                                        'chatbot_id': _chatbot_id,
+                                        'message': (
+                                            f'Site has ~{page_count} pages, '
+                                            f'exceeding 250 page limit'
+                                        )
+                                    }, room=f"user_{user_id}",
+                                        namespace='/')
+                                return
+                            _emit_log(
+                                f"Found ~{page_count} pages, "
+                                f"starting crawl...", 'info'
+                            )
+                        except Exception as e:
+                            _emit_log(
+                                f"Page count check failed, "
+                                f"proceeding anyway: {e}", 'warning'
                             )
 
                     _emit_log(

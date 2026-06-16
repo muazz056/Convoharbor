@@ -498,8 +498,8 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 
     const DEPTH_INFO = {
       single: 'Scrape only this single page. Best for specific articles or documentation pages.',
-      depth1: 'Scrape this page plus all directly linked pages under the same path (up to 20 pages). Good for guides with multiple sub-pages.',
-      depth2: 'Scrape this page plus linked pages and their sub-links under the same path (up to 50 pages). Most thorough option for section-level crawling.',
+      depth1: 'Up to 20 direct pages — scrapes this page and all directly linked pages under the same path.',
+      depth2: 'Up to 50 pages total — scrapes this page, directly linked pages, and their sub-links under the same path.',
     };
 
     const isFormValid = () => {
