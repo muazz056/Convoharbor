@@ -1,9 +1,12 @@
 /* Public Chat Embed Styles */
 .public-chat-container {
   background: transparent !important;
-  min-height: 100vh;
-  width: 100vw;
-  position: relative;
+  width: 0;
+  height: 0;
+  min-height: 0;
+  overflow: visible;
+  position: static;
+  pointer-events: none;
 }
 
 /* Ensure the root and body are transparent for iframe embedding */
@@ -13,6 +16,8 @@ html.public-chat-mode {
   margin: 0;
   padding: 0;
   overflow: visible;
+  height: 0;
+  min-height: 0;
 }
 
 /* #root is the React mount point — index.css forces #ffffff !important on it,
@@ -24,11 +29,6 @@ body.public-chat-mode #root {
 /* Hide any default React app styling that might show */
 .public-chat-container * {
   box-sizing: border-box;
-}
-
-/* Ensure no scrollbars in iframe */
-.public-chat-container {
-  overflow: hidden;
 }
 
 /* No visible borders/outlines inside the iframe */

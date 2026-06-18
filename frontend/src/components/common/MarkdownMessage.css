@@ -53,9 +53,14 @@
    push body color to white, which would otherwise leak into
    the assistant message. */
 .message.assistant .message-content > span,
-.message.assistant .message-content > .markdown-message,
-.message.assistant .message-content > .markdown-message * {
+.message.assistant .message-content > .markdown-message {
   color: #1f2937 !important;
+}
+/* Preserve code block colors — the blanket * override would
+   make code text dark against the dark background. */
+.message.assistant .message-content > .markdown-message pre,
+.message.assistant .message-content > .markdown-message pre * {
+  color: #e2e8f0 !important;
 }
 
 /* Tighten the natural rhythm so headings don't read as detached
@@ -168,6 +173,7 @@
 }
 
 /* highlight.js colours tuned for the dark code background */
+.markdown-message .hljs { color: #e2e8f0; }
 .markdown-message .hljs-keyword,
 .markdown-message .hljs-selector-tag,
 .markdown-message .hljs-built_in,

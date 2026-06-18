@@ -425,6 +425,28 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
         }
     }, [messages]);
 
+    // Send ideal dimensions to parent iframe for resize.
+    // Embed script clamps to host viewport and adds 20px for position offset.
+    useEffect(() => {
+        if (!publicMode) return;
+        const dims = isOpen
+            ? { width: 380, height: 620 }
+            : { width: 48, height: 48 };
+        const send = () => {
+            if (window.parent !== window) {
+                window.parent.postMessage(
+                    { type: 'convoharbor_resize', ...dims },
+                    '*'
+                );
+            }
+        };
+        send();
+        const t1 = setTimeout(send, 100);
+        const t2 = setTimeout(send, 400);
+        const t3 = setTimeout(send, 1000);
+        return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    }, [isOpen, publicMode]);
+
     const handleRatingSubmit = async (rating, feedback = '') => {
         if (ratingSubmitting) return;
         setRatingSubmitting(true);

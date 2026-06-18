@@ -99,8 +99,31 @@ def generate_widget_script(chatbot_id):
           timestamp: new Date().toISOString()
         }};
 
+        // Set up resize listener BEFORE creating iframe
+        var _lastW = 0, _lastH = 0;
+        var _applySize = function(w, h) {{
+          _lastW = w; _lastH = h;
+          var f = document.querySelector('iframe[data-convoharbor]');
+          if(!f) return;
+          // Add 20px offset for widget position, clamp to host viewport
+          var cw = Math.min(w + 20, window.innerWidth);
+          var ch = Math.min(h + 20, window.innerHeight);
+          f.style.width = cw + 'px';
+          f.style.height = ch + 'px';
+        }};
+        window.addEventListener('message', function(e){{
+          if(e.data && e.data.type === 'convoharbor_resize'){{
+            _applySize(e.data.width, e.data.height);
+          }}
+        }});
+        // Re-apply on host window resize for responsiveness
+        window.addEventListener('resize', function(){{
+          if(_lastW > 0) _applySize(_lastW, _lastH);
+        }});
+
         // Create iframe with website context
         var iframe = document.createElement('iframe');
+        iframe.setAttribute('data-convoharbor','true');
         var contextParam = encodeURIComponent(JSON.stringify(websiteContext));
         iframe.src = \"{chat_widget_url}?website_context=\" + contextParam;
         iframe.style.border = 'none';
@@ -110,9 +133,10 @@ def generate_widget_script(chatbot_id):
         iframe.style.background = 'transparent';
         iframe.style.pointerEvents = 'auto';
         iframe.allow = 'clipboard-write;';
-        // Fixed size — accommodates both closed toggle and open chat window
-        iframe.style.width = '400px';
-        iframe.style.height = '620px';
+        // Start small (toggle-button size) — ChatWidget sends postMessage
+        // to enlarge on open and shrink on close.
+        iframe.style.width = '60px';
+        iframe.style.height = '60px';
         iframe.style.maxWidth = '100vw';
         iframe.style.maxHeight = '100vh';
         // Position at configured widget corner
