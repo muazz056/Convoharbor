@@ -42,7 +42,7 @@ def tenant_required(f):
 
 def setup_tenant_context():
     if request.method == 'OPTIONS':
-        return jsonify({'status': 'ok'}), 200
+        return '', 204
 
     public_endpoints = [
         'api.auth_login',

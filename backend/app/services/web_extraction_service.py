@@ -92,9 +92,10 @@ class WebExtractionService:
         self.url_queue: deque = deque()
         self.extracted_content: List[Dict[str, Any]] = []
         self.crawl_lock = threading.Lock()
-        self.max_pages = 100  # Higher limit, but will be calculated dynamically
+        self.max_pages = 250  # Crawl stops after this many pages
         self.max_depth = 3   # Maximum crawl depth
         self.crawl_delay = 1  # Delay between requests (seconds)
+        self.cancellation_event = None  # threading.Event for cancel signalling
         self.total_discovered_pages = 0  # Actual number of pages discovered
         self.progress_callback = None  # Callback for progress updates
         self._sitemap_cache: Dict[str, List[str]] = {}  # domain → sitemap URLs
@@ -144,6 +145,7 @@ class WebExtractionService:
         self.failed_urls.clear()
         self.url_queue.clear()
         self.extracted_content.clear()
+        self._all_seen_urls = set()
         self.progress_callback = progress_callback  # Store callback for progress updates
         self._structure_model_name = model_name
         self._structure_model_provider = model_provider
@@ -152,27 +154,41 @@ class WebExtractionService:
         parsed_start = urlparse(start_url)
         base_domain = f"{parsed_start.scheme}://{parsed_start.netloc}"
         domain_name = parsed_start.netloc
+        self._base_domain = base_domain
 
         current_app.logger.info(f"🎯 Target domain: {domain_name}")
         current_app.logger.info(f"📊 Crawl settings: max {self.max_pages} pages, {self.max_depth} depth")
 
         try:
-            # Step 1: Discover URLs from multiple sources
-            discovered_urls = self._discover_website_urls(start_url, base_domain)
-            current_app.logger.info(f"🔍 Discovered {len(discovered_urls)} URLs to crawl")
+            # Step 1: Seed queue with start URL, then discover links from start page only
+            discovered_urls = [{'url': start_url, 'depth': 0, 'source': 'seed', 'priority': 1}]
+            try:
+                links = self._extract_internal_links_robust(start_url, base_domain)
+                remaining = self.max_pages - 1
+                for link in links[:remaining]:
+                    if link != start_url:
+                        discovered_urls.append({
+                            'url': link, 'depth': 1,
+                            'source': 'seed', 'priority': 2
+                        })
+                current_app.logger.info(f"🔍 Seeded {len(discovered_urls)} URLs from start page")
+            except Exception as e:
+                current_app.logger.warning(f"⚠️ Start page link extraction failed: {e}")
 
             # Step 2: Add URLs to crawling queue
-            for url_info in discovered_urls:
+            for url_info in discovered_urls[:self.max_pages]:
                 self.url_queue.append(url_info)
+                self._all_seen_urls.add(url_info['url'])
+            self.total_discovered_pages = len(self.url_queue)
 
             # Notify frontend of discovery count
             if self.progress_callback:
                 self.progress_callback({
                     'pages_crawled': 0,
-                    'total_pages': len(discovered_urls),
+                    'total_pages': self.total_discovered_pages,
                     'progress_percent': 0,
                     'pages_failed': 0,
-                    'current_page': f'Found {len(discovered_urls)} pages to crawl'
+                    'current_page': f'Found {self.total_discovered_pages} pages to crawl'
                 })
 
             # Step 3: Process crawling queue with threading (with error handling)
@@ -2315,6 +2331,11 @@ URL: {url}
             future_to_url = {}
 
             while self.url_queue and len(self.crawled_urls) < self.max_pages:
+                # Check if crawl was cancelled
+                if self.cancellation_event and self.cancellation_event.is_set():
+                    current_app.logger.info("🛑 Crawl cancelled via cancellation event")
+                    break
+
                 # Get next batch of URLs
                 batch_size = min(10, len(self.url_queue))
                 batch_futures = []
@@ -2448,6 +2469,30 @@ URL: {url}
         if len(extracted.strip()) < 80:
             # Content is too thin to be useful
             return None
+
+        # 3. Discover internal links from this page and enqueue new ones
+        try:
+            parsed_base = urlparse(self._base_domain)
+            base_host = parsed_base.netloc
+            soup = BeautifulSoup(html_content, 'html.parser')
+            for tag in soup.find_all(['a', 'link', 'area']):
+                href = tag.get('href')
+                if not href:
+                    continue
+                abs_url = urljoin(url, href)
+                fragment = urlparse(abs_url).fragment
+                clean_url = abs_url.replace(f'#{fragment}', '') if fragment else abs_url
+                if self._is_internal_url(clean_url, base_host) and clean_url not in self.crawled_urls and clean_url not in self.failed_urls:
+                    with self.crawl_lock:
+                        if clean_url not in self._all_seen_urls and len(self.url_queue) + len(self.crawled_urls) < self.max_pages:
+                            self._all_seen_urls.add(clean_url)
+                            self.url_queue.append({
+                                'url': clean_url, 'depth': depth + 1,
+                                'source': 'crawl', 'priority': 3
+                            })
+                            self.total_discovered_pages = len(self.url_queue) + len(self.crawled_urls)
+        except Exception:  # noqa: BLE001
+            pass
 
         return {
             'url': url,

@@ -726,15 +726,21 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                       }
                     : { content: currentInput, chatbot_id: Number(effectiveChatbotId) };
 
-                const streamRes = await fetch(streamUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'text/event-stream',
-                        ...(authToken && { 'Authorization': `Bearer ${authToken}` })
-                    },
-                    body: JSON.stringify(streamBody)
-                });
+                let streamRes;
+                try {
+                    streamRes = await fetch(streamUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'text/event-stream',
+                            ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+                        },
+                        body: JSON.stringify(streamBody)
+                    });
+                } catch (err) {
+                    console.warn(`⚠️ ${logTag} Fetch failed in tryStream (CORS / network error), falling back to JSON`, err.message);
+                    return { ok: false, res: null };
+                }
 
                 if (streamRes.ok && streamRes.headers.get('content-type')?.includes('text/event-stream')) {
                     const responseReceivedTime = performance.now();
@@ -1039,6 +1045,23 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
             if (data.assistant_message) {
                 // Turn off typing indicator and add assistant message
                 setIsTyping(false);
+                const shouldShowRating = data.show_rating;
+                if (shouldShowRating) {
+                    const ratingMsg = data.rating_message || (testMode
+                        ? 'How would you rate your experience? (Test mode)'
+                        : 'How would you rate your experience?');
+                    console.log('🌟 Rating prompt triggered!', {
+                        conversationId: currentConversationId,
+                        ratingMessage: ratingMsg
+                    });
+                    ratingSubmittedRef.current = false;
+                    setRatingSubmitting(false);
+                    setShowRating(true);
+                    setRatingStep('stars');
+                    setRatingMessage(ratingMsg);
+                } else {
+                    console.log('📝 No rating prompt in response');
+                }
                 const assistantMessage = {
                     message_type: 'assistant',
                     content: data.assistant_message.content,
@@ -1046,37 +1069,57 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                     isStreaming: false
                 };
                 setMessages(prev => {
-                    const updated = [...prev, assistantMessage];
+                    let updated = [...prev, assistantMessage];
+                    if (shouldShowRating) {
+                        // Insert rating message inline after last user message
+                        updated = updated.filter(m => m.message_type !== 'rating');
+                        let lastUserIdx = -1;
+                        for (let i = updated.length - 1; i >= 0; i--) {
+                            if (updated[i].message_type === 'user') {
+                                lastUserIdx = i;
+                                break;
+                            }
+                        }
+                        const insertIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : updated.length;
+                        updated.splice(insertIdx, 0, {
+                            message_type: 'rating',
+                            rating_message: data.rating_message || (testMode
+                                ? 'How would you rate your experience? (Test mode)'
+                                : 'How would you rate your experience?'),
+                            timestamp: new Date().toISOString()
+                        });
+                    }
                     if (testMode) {
                         try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
                     }
                     return updated;
                 });
-
-                // Check if we should show rating prompt (only in non-test mode)
-                if (!testMode && data.show_rating) {
-                    console.log('🌟 Rating prompt triggered!', {
-                        conversationId: currentConversationId,
-                        ratingMessage: data.rating_message
-                    });
-                    ratingSubmittedRef.current = false;
-                    setRatingSubmitting(false);
-                    setShowRating(true);
-                    setRatingStep('stars');
-                    setRatingMessage(data.rating_message || 'How would you rate your experience?');
-                } else if (testMode && data.show_rating) {
-                    // Test mode also shows rating but won't save
+                if (shouldShowRating) {
+                    try {
+                        const key = getRatingStorageKey(conversationId || currentConversationId);
+                        if (key) {
+                            localStorage.setItem(key, JSON.stringify({
+                                show_rating: true,
+                                rating_message: data.rating_message || (testMode
+                                    ? 'How would you rate your experience? (Test mode)'
+                                    : 'How would you rate your experience?'),
+                                conversation_id: (conversationId || currentConversationId)
+                            }));
+                        }
+                    } catch (_) {}
+                }
+            } else if (data.response) {
+                // Test mode JSON response format
+                setIsTyping(false);
+                const shouldShowRating = data.show_rating;
+                if (shouldShowRating) {
+                    console.log('🌟 Test mode: Rating prompt triggered!');
                     ratingSubmittedRef.current = false;
                     setRatingSubmitting(false);
                     setShowRating(true);
                     setRatingStep('stars');
                     setRatingMessage(data.rating_message || 'How would you rate your experience? (Test mode)');
-                } else {
-                    console.log('📝 No rating prompt in response');
                 }
-            } else if (data.response) {
-                // Test mode JSON response format
-                setIsTyping(false);
                 const assistantMessage = {
                     message_type: 'assistant',
                     content: data.response,
@@ -1084,21 +1127,40 @@ const ChatWidget = ({ publicMode = false, testMode = false, chatbotId, conversat
                     isStreaming: false
                 };
                 setMessages(prev => {
-                    const updated = [...prev, assistantMessage];
+                    let updated = [...prev, assistantMessage];
+                    if (shouldShowRating) {
+                        // Insert rating message inline after last user message
+                        updated = updated.filter(m => m.message_type !== 'rating');
+                        let lastUserIdx = -1;
+                        for (let i = updated.length - 1; i >= 0; i--) {
+                            if (updated[i].message_type === 'user') {
+                                lastUserIdx = i;
+                                break;
+                            }
+                        }
+                        const insertIdx = lastUserIdx !== -1 ? lastUserIdx + 1 : updated.length;
+                        updated.splice(insertIdx, 0, {
+                            message_type: 'rating',
+                            rating_message: data.rating_message || 'How would you rate your experience? (Test mode)',
+                            timestamp: new Date().toISOString()
+                        });
+                    }
                     if (testMode) {
                         try { localStorage.setItem(getTestStorageKey(), JSON.stringify(updated)); } catch (e) {}
                     }
                     return updated;
                 });
-
-                // Check for rating prompt in test mode JSON response
-                if (data.show_rating) {
-                    console.log('🌟 Test mode: Rating prompt triggered!');
-                    ratingSubmittedRef.current = false;
-                    setRatingSubmitting(false);
-                    setShowRating(true);
-                    setRatingStep('stars');
-                    setRatingMessage(data.rating_message || 'How would you rate your experience? (Test mode)');
+                if (shouldShowRating) {
+                    try {
+                        const key = getRatingStorageKey(conversationId || currentConversationId);
+                        if (key) {
+                            localStorage.setItem(key, JSON.stringify({
+                                show_rating: true,
+                                rating_message: data.rating_message || 'How would you rate your experience? (Test mode)',
+                                conversation_id: (conversationId || currentConversationId)
+                            }));
+                        }
+                    } catch (_) {}
                 }
             } else {
                 console.warn('⚠️ No assistant message in response:', data);

@@ -2,12 +2,16 @@
 
 import os
 import uuid
+import threading
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
 from flask import request, current_app, jsonify, g
 from . import api
 from ..decorators import login_required
 from ..models import Chatbot, DataSource, AiModel
+
+# Track active crawl cancellation events keyed by data_source_id
+_active_crawls = {}
 from ..models.ai_model import SUPPORTED_PROVIDERS
 from .. import db
 from flasgger.utils import swag_from
@@ -513,6 +517,12 @@ def delete_datasource(datasource_id):
         if not datasource:
             return jsonify({'error': 'Data source not found'}), 404
 
+        # Signal any running crawl to stop
+        cancel_event = _active_crawls.get(datasource_id)
+        if cancel_event:
+            cancel_event.set()
+            current_app.logger.info(f"🛑 Signalled cancellation for crawl {datasource_id}")
+
         # Mark as deleted first to signal background threads to stop
         try:
             datasource.status = 'deleted'
@@ -805,6 +815,13 @@ def trigger_web_crawl():
 
         data_source_id = data_source.id
 
+        # Store cancellation event so delete endpoint can signal the crawl to stop
+        _cancellation_event = threading.Event()
+        _active_crawls[data_source_id] = _cancellation_event
+
+        def _cleanup_crawl():
+            _active_crawls.pop(data_source_id, None)
+
         # Run crawl in background thread so the response returns immediately
         from threading import Thread
         from flask import copy_current_request_context
@@ -856,15 +873,21 @@ def trigger_web_crawl():
                     )
 
                     # Check if cancelled before proceeding
+                    if _cancellation_event.is_set():
+                        _emit_log("Crawl cancelled by user", 'warning')
+                        _cleanup_crawl()
+                        return
                     ds_check = DataSource.query.get(data_source_id)
                     if not ds_check or ds_check.status == 'deleted':
                         _emit_log("Crawl cancelled - data source was deleted", 'warning')
+                        _cleanup_crawl()
                         return
 
                     from ..services.web_extraction_service import (
                         WebExtractionService,
                     )
                     web_extractor = WebExtractionService()
+                    web_extractor.cancellation_event = _cancellation_event
 
                     def progress_callback(progress_data):
                         try:
@@ -906,58 +929,14 @@ def trigger_web_crawl():
                                 f"Progress update failed: {e}"
                             )
 
-                    # For full crawl: check page count in background
-                    if _crawl_type == 'full':
-                        _emit_log("Checking page count...", 'step')
-                        try:
-                            page_count = web_extractor.estimate_page_count(_url)
-                            if page_count > 250:
-                                _emit_log(
-                                    f"Site has ~{page_count} pages, exceeds "
-                                    f"250 page limit. Cancelling crawl.",
-                                    'error'
-                                )
-                                ds = DataSource.query.get(data_source_id)
-                                if ds:
-                                    ds.status = 'failed'
-                                    ds.meta_data = {
-                                        **(ds.meta_data or {}),
-                                        'error': (
-                                            f'Page limit exceeded: '
-                                            f'~{page_count} pages (max 250)'
-                                        ),
-                                        'failed_at': (
-                                            datetime.utcnow().isoformat()
-                                        )
-                                    }
-                                    _db.session.commit()
-                                socketio = getattr(
-                                    current_app, 'socketio', None
-                                )
-                                if socketio:
-                                    socketio.emit('crawl_failed', {
-                                        'data_source_id': data_source_id,
-                                        'chatbot_id': _chatbot_id,
-                                        'message': (
-                                            f'Site has ~{page_count} pages, '
-                                            f'exceeding 250 page limit'
-                                        )
-                                    }, room=f"user_{user_id}",
-                                        namespace='/')
-                                return
-                            _emit_log(
-                                f"Found ~{page_count} pages, "
-                                f"starting crawl...", 'info'
-                            )
-                        except Exception as e:
-                            _emit_log(
-                                f"Page count check failed, "
-                                f"proceeding anyway: {e}", 'warning'
-                            )
-
                     _emit_log(
                         "Discovering website URLs...", 'step'
                     )
+
+                    if _cancellation_event.is_set():
+                        _emit_log("Crawl cancelled by user before extraction", 'warning')
+                        _cleanup_crawl()
+                        return
 
                     if _crawl_type == 'full':
                         extraction_result = web_extractor.crawl_full_website(
@@ -1088,6 +1067,9 @@ def trigger_web_crawl():
                         current_app.logger.error(
                             f"Failed to update failed status: {db_err}"
                         )
+
+                finally:
+                    _cleanup_crawl()
 
         thread = Thread(target=_run_crawl, daemon=True)
         thread.start()
@@ -1528,20 +1510,44 @@ def _process_web_content_async(app, db, data_source_id, document, user_id=None):
                 print(f"✅ [BG-PRINT] STEP 3: Chunking successful. {len(chunks)} chunks created.")
                 _emit_bg_log(f"Content split into {len(chunks)} chunks", 'progress')
 
-                # STEP 4: Embedding Generation
+                # STEP 4: Embedding Generation (batched for progress visibility)
                 print("🔍 [BG-PRINT] STEP 4: Generating embeddings.")
-                _emit_bg_log("Generating embeddings...", 'step')
                 chunk_texts = [chunk.page_content for chunk in chunks if chunk and chunk.page_content]
                 if not chunk_texts:
                     print("❌ [BG-PRINT] FAILED before embeddings: No valid chunk texts.")
                     raise ValueError("No valid chunk texts found for embedding generation")
 
-                embedding_results = embedding_service.generate_embeddings_for_texts(chunk_texts)
-                if not embedding_results:
-                    print("❌ [BG-PRINT] FAILED after embeddings: No results returned.")
-                    raise ValueError("Embedding service returned no results")
-                print("✅ [BG-PRINT] STEP 4: Embedding generation successful.")
-                _emit_bg_log(f"Generated embeddings for {len(embedding_results.get('embeddings', []))} chunks", 'progress')
+                EMBED_BATCH_SIZE = 100
+                total_chunks = len(chunk_texts)
+                total_batches = (total_chunks + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
+                all_embeddings = []
+                embed_provider = None
+
+                _emit_bg_log(f"Generating embeddings for {total_chunks} chunks ({total_batches} batches)...", 'step')
+
+                for batch_idx in range(total_batches):
+                    start = batch_idx * EMBED_BATCH_SIZE
+                    end = min(start + EMBED_BATCH_SIZE, total_chunks)
+                    batch = chunk_texts[start:end]
+
+                    batch_result = embedding_service.generate_embeddings_for_texts(batch)
+                    if not batch_result or not batch_result.get('embeddings'):
+                        raise ValueError(f"Embedding failed at batch {batch_idx + 1}/{total_batches}")
+
+                    all_embeddings.extend(batch_result['embeddings'])
+                    embed_provider = embed_provider or batch_result.get('provider', 'local')
+                    _emit_bg_log(
+                        f"Embedded {len(all_embeddings)}/{total_chunks} chunks "
+                        f"(batch {batch_idx + 1}/{total_batches})",
+                        'progress'
+                    )
+
+                embedding_results = {
+                    "embeddings": all_embeddings,
+                    "provider": embed_provider or "local"
+                }
+                print(f"✅ [BG-PRINT] STEP 4: Embedding generation successful. {len(all_embeddings)} vectors via {embedding_results['provider']}.")
+                _emit_bg_log(f"Generated embeddings for {len(all_embeddings)} chunks", 'progress')
 
                 # STEP 5: Store results
                 processed_chunks = []
