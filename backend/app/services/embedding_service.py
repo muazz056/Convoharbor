@@ -30,13 +30,14 @@ def _get_local_model():
 
 def _local_embed(texts: list[str]) -> list[list[float]]:
     model = _get_local_model()
-    # Encode one text at a time to minimise peak memory
-    # (model.encode(texts) batches internally at 32 by default,
-    #  which can double peak memory with the model weights loaded)
+    # Use a small batch size: memory-efficient (~24KB per batch for 384-dim vectors)
+    # while avoiding both OOM (single giant tensor) and worker timeout (one-by-one is too slow).
+    BATCH_SIZE = 16
     all_embeddings = []
-    for text in texts:
-        vec = model.encode([text], normalize_embeddings=True, show_progress_bar=False)
-        all_embeddings.append(vec[0].tolist())
+    for start in range(0, len(texts), BATCH_SIZE):
+        batch = texts[start:start + BATCH_SIZE]
+        vecs = model.encode(batch, normalize_embeddings=True, show_progress_bar=False)
+        all_embeddings.extend(vecs.tolist())
     return all_embeddings
 
 
