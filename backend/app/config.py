@@ -98,7 +98,7 @@ class Config:
     GEMINI_EMBEDDING_FALLBACK_MODEL = os.environ.get('GEMINI_EMBEDDING_FALLBACK_MODEL', 'models/gemini-embedding-001')
     EMBEDDING_MAX_RETRIES = int(os.environ.get('EMBEDDING_MAX_RETRIES', '3'))
     EMBEDDING_RETRY_BASE_DELAY = float(os.environ.get('EMBEDDING_RETRY_BASE_DELAY', '2.0'))
-    LOCAL_EMBEDDING_MODEL = os.environ.get('LOCAL_EMBEDDING_MODEL', 'thenlper/gte-small')
+    LOCAL_EMBEDDING_MODEL = os.environ.get('LOCAL_EMBEDDING_MODEL', 'all-MiniLM-L6-v2')
     LOCAL_EMBEDDING_DIMENSION = int(os.environ.get('LOCAL_EMBEDDING_DIMENSION', '384'))
 
     # =============================================================
