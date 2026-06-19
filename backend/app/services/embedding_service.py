@@ -30,8 +30,14 @@ def _get_local_model():
 
 def _local_embed(texts: list[str]) -> list[list[float]]:
     model = _get_local_model()
-    embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
-    return embeddings.tolist()
+    # Encode one text at a time to minimise peak memory
+    # (model.encode(texts) batches internally at 32 by default,
+    #  which can double peak memory with the model weights loaded)
+    all_embeddings = []
+    for text in texts:
+        vec = model.encode([text], normalize_embeddings=True, show_progress_bar=False)
+        all_embeddings.append(vec[0].tolist())
+    return all_embeddings
 
 
 def preload_local_embedding_model(app):
