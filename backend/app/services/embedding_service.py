@@ -29,28 +29,21 @@ def _get_local_model():
 
 
 def _local_embed(texts: list[str]) -> list[list[float]]:
+    import gc
     model = _get_local_model()
-    # Offload to native thread via eventlet.tpool so CPU-bound model.encode()
-    # doesn't block eventlet's cooperative event loop and trigger WORKER TIMEOUT.
-    # Use a small batch size (16) to keep peak memory low.
-    BATCH_SIZE = 16
+    # Batch size 8 balances memory vs speed:
+    #   - 8 texts × 384-dim = ~12KB tensor peak (vs 500KB+ for full batch)
+    #   - Total time for 156 texts: ~20 batches × ~0.3s ≈ 6s (under 30s timeout)
+    BATCH_SIZE = 8
     all_embeddings = []
     for start in range(0, len(texts), BATCH_SIZE):
         batch = texts[start:start + BATCH_SIZE]
-        vecs = _tpool_execute(model.encode, batch,
-                              normalize_embeddings=True, show_progress_bar=False)
+        vecs = model.encode(batch, normalize_embeddings=True, show_progress_bar=False)
         all_embeddings.extend(vecs.tolist())
+        # Force garbage collection after each batch to keep peak memory low
+        del vecs
+        gc.collect()
     return all_embeddings
-
-
-def _tpool_execute(fn, *args, **kwargs):
-    """Run ``fn(*args, **kwargs)`` in a native thread via eventlet.tpool.
-    Falls back to a direct call if eventlet is not available."""
-    try:
-        from eventlet import tpool
-        return tpool.execute(fn, *args, **kwargs)
-    except ImportError:
-        return fn(*args, **kwargs)
 
 
 def preload_local_embedding_model(app):
