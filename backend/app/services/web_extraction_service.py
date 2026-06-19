@@ -1518,12 +1518,15 @@ URL: {url}
                     return False
                 return True
 
+            def _is_valid_discovery_url(link: str) -> bool:
+                return self._is_valid_crawl_url(link)
+
             # ── Discovery phase ─────────────────────────────────────
             # Strategy 1: sitemap (JS-agnostic, catches all pages)
             # Walk sitemap index one sub-sitemap at a time so we can
             # stop early once we have enough matching URLs.
             def _match_or_stop(sm_url: str) -> bool:
-                if _is_under_same_prefix(sm_url) and sm_url not in seen:
+                if _is_under_same_prefix(sm_url) and sm_url not in seen and _is_valid_discovery_url(sm_url):
                     discovered.append(
                         {'url': sm_url, 'depth': 1,
                          'source': 'sitemap', 'priority': 1}
@@ -2229,7 +2232,7 @@ URL: {url}
         except Exception:  # noqa: BLE001
             pass
 
-        return list(internal)
+        return [u for u in internal if self._is_valid_crawl_url(u)]
 
     def _is_internal_url(self, url: str, base_host: str) -> bool:
         try:
@@ -2482,7 +2485,7 @@ URL: {url}
                 abs_url = urljoin(url, href)
                 fragment = urlparse(abs_url).fragment
                 clean_url = abs_url.replace(f'#{fragment}', '') if fragment else abs_url
-                if self._is_internal_url(clean_url, base_host) and clean_url not in self.crawled_urls and clean_url not in self.failed_urls:
+                if self._is_internal_url(clean_url, base_host) and self._is_valid_crawl_url(clean_url) and clean_url not in self.crawled_urls and clean_url not in self.failed_urls:
                     with self.crawl_lock:
                         if clean_url not in self._all_seen_urls and len(self.url_queue) + len(self.crawled_urls) < self.max_pages:
                             self._all_seen_urls.add(clean_url)
