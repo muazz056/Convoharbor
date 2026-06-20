@@ -42,6 +42,41 @@ def _context_relevant_to_query(context_text, query):
     return False
 
 
+def _is_follow_up(conversation_id, content):
+    """Check if current user message is a short follow-up to a previous assistant response."""
+    content_clean = content.strip().lower()
+    if not content_clean:
+        return False
+
+    follow_up_phrases = [
+        'yes', 'yeah', 'sure', 'ok', 'okay', 'tell me more',
+        'i would love', 'please', 'go ahead', "let's do it",
+        'absolutely', 'definitely', 'of course', 'i am interested',
+        "i'd love to", "i'd like", 'schedule', 'book a call',
+        'sign me up', 'count me in', 'that sounds great',
+        'yes please', 'yes i would', 'yes i am',
+    ]
+    for phrase in follow_up_phrases:
+        if phrase in content_clean:
+            last_assistant = Message.query.filter_by(
+                conversation_id=conversation_id,
+                message_type='assistant'
+            ).order_by(Message.created_at.desc()).first()
+            if last_assistant and last_assistant.content:
+                return True
+
+    words = content_clean.split()
+    if len(words) <= 4:
+        last_assistant = Message.query.filter_by(
+            conversation_id=conversation_id,
+            message_type='assistant'
+        ).order_by(Message.created_at.desc()).first()
+        if last_assistant and last_assistant.content:
+            return True
+
+    return False
+
+
 def stream_response_chunks(text, chunk_size=1, delay=0.005):
     """
     Stream response text word-by-word with typewriter effect.
@@ -780,6 +815,7 @@ def send_message_json(conversation_id):
             created_at=datetime.utcnow()
         )
         db.session.add(user_message)
+        db.session.flush()  # Get ID assigned so we can exclude it from history
 
         # Initialize conversation service for greeting/farewell detection
         from ..services.conversation_service import ConversationService
@@ -937,10 +973,12 @@ def send_message_json(conversation_id):
 
             # Check if we have relevant context from the knowledge base
             current_app.logger.info(f"🔍 Checking fallback condition: restrict={restrict_to_knowledge_base}, context_empty={not context_text}, context_strip_empty={not context_text.strip() if context_text else True}")
-            if restrict_to_knowledge_base and (not context_text or not context_text.strip() or not _context_has_meaningful_content(context_text) or not _context_relevant_to_query(context_text, content)):
-                current_app.logger.warning(f"🔍 FALLBACK TRIGGERED: No context found for query: '{content}' in chatbot {chatbot_id}")
+            is_follow_up = _is_follow_up(conversation_id, content)
+            if is_follow_up:
+                current_app.logger.info(f"🔍 Detected follow-up to assistant response, will use strict mode with available context")
 
-                # No broader search needed with simple text search approach
+            if not is_follow_up and restrict_to_knowledge_base and (not context_text or not context_text.strip() or not _context_has_meaningful_content(context_text) or not _context_relevant_to_query(context_text, content)):
+                current_app.logger.warning(f"🔍 FALLBACK TRIGGERED: No context found for query: '{content}' in chatbot {chatbot_id}")
 
                 # If still no context after broader search, return fallback message
                 if not context_text or not context_text.strip() or not _context_has_meaningful_content(context_text) or not _context_relevant_to_query(context_text, content):
@@ -1013,13 +1051,13 @@ def send_message_json(conversation_id):
             chatbot_role = personality.get('role', 'AI Assistant')
 
             if restrict_to_knowledge_base:
-                if context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content):
+                if (context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content)) or is_follow_up:
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.strict',
                         chatbot_name=chatbot_name,
                         chatbot_role=chatbot_role,
                         target_lang=target_lang,
-                        context=context_text,
+                        context=context_text or '',
                     )
                 else:
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
@@ -1041,7 +1079,7 @@ def send_message_json(conversation_id):
 
             history_messages = Message.query.filter_by(
                 conversation_id=conversation_id
-            ).order_by(Message.created_at.desc()).limit(20).all()
+            ).filter(Message.id != user_message.id).order_by(Message.created_at.desc()).limit(50).all()
             history_messages.reverse()
 
             messages = [
@@ -1392,14 +1430,18 @@ def send_message_stream(conversation_id):
             chatbot_name = config.get('name', 'this chatbot')
             chatbot_role = personality.get('role', 'AI Assistant')
 
+            is_follow_up = _is_follow_up(conversation_id, content)
+            if is_follow_up:
+                current_app.logger.info(f"🌊 [STREAM] Detected follow-up, using strict mode with available context")
+
             if restrict_to_knowledge_base:
-                if context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content):
+                if (context_text and context_text.strip() and _context_has_meaningful_content(context_text) and _context_relevant_to_query(context_text, content)) or is_follow_up:
                     full_system_message = system_message + "\n\n" + prompt_svc.render(
                         'rag_system.strict',
                         chatbot_name=chatbot_name,
                         chatbot_role=chatbot_role,
                         target_lang=target_lang,
-                        context=context_text,
+                        context=context_text or '',
                     )
                     current_app.logger.info(f"🔒 [STREAM] STRICT MODE LOCKED - Using KB context (length: {len(context_text)})")
                 else:
@@ -1432,12 +1474,13 @@ def send_message_stream(conversation_id):
 
             # Build conversation history
             recent_messages = Message.query.filter_by(conversation_id=conversation_id)\
+                .filter(Message.id != user_message.id)\
                 .order_by(Message.created_at.desc())\
-                .limit(10)\
+                .limit(50)\
                 .all()
 
             messages = [{"role": "system", "content": full_system_message}]
-            for msg in reversed(recent_messages[1:]):  # Skip the just-added user message
+            for msg in reversed(recent_messages):
                 role = "assistant" if msg.message_type == 'assistant' else "user"
                 messages.append({"role": role, "content": msg.content})
             messages.append({"role": "user", "content": content})

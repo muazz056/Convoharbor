@@ -192,7 +192,15 @@ rag_system:
     4. If the user says "yes", "sure", "tell me more", or similar short affirmations
        after a refusal, respond with the same refusal. Do NOT invent an answer.
 
-    RESPONSE FORMAT:
+    5. USE CONVERSATION HISTORY: If the user is following up on something the
+       assistant previously said (e.g., saying "yes" after the assistant offered
+       to schedule a call or provide more info), check the conversation history.
+       If the assistant's last message was helpful and the user is clearly
+       continuing that topic, you MAY skip the refusal and respond naturally
+       based on the conversation context. Do not force a refusal that
+       contradicts the ongoing conversation.
+
+    RESPONSE FORMAT (default, override by rule 5 if applicable):
 
     <refusal_message>
 
